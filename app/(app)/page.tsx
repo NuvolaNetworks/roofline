@@ -2,92 +2,213 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getDb, STAGES } from "@/lib/db";
 import { currentUser, visibleUserIds } from "@/lib/auth";
-
-interface JobRow {
-  id: number;
-  title: string;
-  address: string;
-  trade: string;
-  stage: string;
-  value_cents: number;
-  assignee: string;
-  contact: string;
-  updated_at: string;
-}
+import { toggleTask } from "@/lib/actions";
+import { usd, daysSince, tone } from "@/lib/fmt";
 
 export const dynamic = "force-dynamic";
 
-export default async function JobsBoard() {
+export default async function Home() {
   const user = await currentUser();
   if (!user) redirect("/login");
   const ids = visibleUserIds(user);
-  const rows = getDb()
+  const ph = ids.map(() => "?").join(",");
+  const db = getDb();
+
+  const tasks = db
     .prepare(
-      `SELECT j.id, j.title, j.address, j.trade, j.stage, j.value_cents, j.updated_at,
-              u.name AS assignee, c.name AS contact
-       FROM jobs j
-       LEFT JOIN users u ON u.id = j.assignee_id
-       LEFT JOIN contacts c ON c.id = j.contact_id
-       WHERE j.assignee_id IN (${ids.map(() => "?").join(",")})
-       ORDER BY j.updated_at DESC`,
+      `SELECT t.id, t.title, t.due_on, t.done, t.job_id, j.title AS job
+       FROM tasks t LEFT JOIN jobs j ON j.id = t.job_id
+       WHERE t.assignee_id IN (${ph}) ORDER BY t.done, t.due_on`,
     )
-    .all(...ids) as unknown as JobRow[];
+    .all(...ids) as Array<Record<string, unknown>>;
+
+  const updates = db
+    .prepare(
+      `SELECT e.kind, e.body, e.actor, e.created_at, e.job_id, j.title AS job
+       FROM job_events e JOIN jobs j ON j.id = e.job_id
+       WHERE j.assignee_id IN (${ph}) ORDER BY e.id DESC LIMIT 8`,
+    )
+    .all(...ids) as Array<Record<string, unknown>>;
+
+  const stages = db
+    .prepare(
+      `SELECT stage, COUNT(*) AS n, COALESCE(SUM(value_cents),0) AS v
+       FROM jobs WHERE assignee_id IN (${ph}) GROUP BY stage`,
+    )
+    .all(...ids) as Array<{ stage: string; n: number; v: number }>;
+
+  const today = db
+    .prepare(
+      `SELECT j.id, j.title, j.address, j.trade, j.scheduled_for
+       FROM jobs j WHERE j.assignee_id IN (${ph})
+         AND j.scheduled_for IS NOT NULL AND date(j.scheduled_for) >= date('now')
+       ORDER BY j.scheduled_for LIMIT 4`,
+    )
+    .all(...ids) as Array<Record<string, unknown>>;
+
+  const money = db
+    .prepare(
+      `SELECT
+         COALESCE(SUM(CASE WHEN i.status != 'Paid' THEN i.amount_cents END),0) AS outstanding,
+         COALESCE(SUM(CASE WHEN i.status = 'Paid' AND i.paid_at > datetime('now','-30 days') THEN i.amount_cents END),0) AS collected
+       FROM invoices i JOIN jobs j ON j.id = i.job_id WHERE j.assignee_id IN (${ph})`,
+    )
+    .get(...ids) as { outstanding: number; collected: number };
+
+  const open = stages.filter((s) => s.stage !== "Closed");
+  const pipeline = open.reduce((s, r) => s + r.v, 0);
 
   return (
     <div className="p-6">
-      <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Jobs</h1>
-        <Link
-          href="/leads/new"
-          className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--accent-light)]"
-        >
-          + New lead
-        </Link>
+      <h1 className="mb-1 text-xl font-semibold">
+        Good morning, {user.name.split(" ")[0]}
+      </h1>
+      <p className="mb-5 text-sm text-[var(--muted)]">
+        {tasks.filter((t) => !t.done).length} open tasks · {open.reduce((s, r) => s + r.n, 0)} live jobs
+      </p>
+
+      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Tile label="Open pipeline" value={usd(pipeline)} />
+        <Tile label="Outstanding invoices" value={usd(money.outstanding)} alert={money.outstanding > 0} />
+        <Tile label="Collected (30d)" value={usd(money.collected)} />
+        <Tile
+          label="Scheduled next"
+          value={today[0] ? String(today[0].scheduled_for) : "—"}
+          sub={today[0] ? String(today[0].title) : undefined}
+        />
       </div>
-      <div className="flex gap-4 overflow-x-auto pb-4">
-        {STAGES.map((stage) => {
-          const inStage = rows.filter((r) => r.stage === stage);
-          const total = inStage.reduce((s, r) => s + r.value_cents, 0);
-          return (
-            <div key={stage} className="w-72 shrink-0">
-              <div className="mb-2 flex items-baseline justify-between px-1">
-                <span className="text-sm font-semibold">
-                  {stage} <span className="text-[var(--muted)]">({inStage.length})</span>
-                </span>
-                <span className="text-xs text-[var(--muted)] tabular-nums">
-                  ${(total / 100).toLocaleString()}
-                </span>
-              </div>
-              <div className="space-y-2">
-                {inStage.map((job) => (
-                  <Link
-                    key={job.id}
-                    href={`/jobs/${job.id}`}
-                    className="block rounded-xl border border-[var(--card-border)] bg-[var(--card)] p-3 shadow-sm hover:border-[var(--accent-light)]"
-                  >
-                    <div className="text-sm font-medium leading-snug">{job.title}</div>
-                    <div className="mt-1 text-xs text-[var(--muted)]">{job.address}</div>
-                    <div className="mt-2 flex items-center justify-between text-xs">
-                      <span className="rounded-full bg-black/5 px-2 py-0.5">{job.trade}</span>
-                      <span className="tabular-nums">
-                        {job.value_cents > 0 ? `$${(job.value_cents / 100).toLocaleString()}` : "—"}
-                      </span>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card title="My tasks" href="/jobs" hrefLabel="All jobs">
+          {tasks.length === 0 ? (
+            <p className="text-sm text-[var(--muted)]">Nothing assigned.</p>
+          ) : (
+            tasks.map((t) => {
+              const toggle = toggleTask.bind(null, Number(t.id));
+              const overdue = !t.done && String(t.due_on ?? "") < new Date().toISOString().slice(0, 10);
+              return (
+                <div key={String(t.id)} className="flex items-center gap-3 border-b border-[var(--card-border)] py-2 last:border-0">
+                  <form action={toggle}>
+                    <button
+                      className={`h-4 w-4 rounded border ${t.done ? "border-emerald-500 bg-emerald-500" : "border-[var(--card-border)]"}`}
+                      aria-label="toggle task"
+                    />
+                  </form>
+                  <div className="min-w-0 flex-1">
+                    <div className={`text-sm ${t.done ? "text-[var(--muted)] line-through" : ""}`}>
+                      {String(t.title)}
                     </div>
-                    <div className="mt-1 text-[11px] text-[var(--muted)]">
-                      {job.assignee} · {job.contact}
-                    </div>
-                  </Link>
-                ))}
-                {inStage.length === 0 ? (
-                  <div className="rounded-xl border border-dashed border-[var(--card-border)] p-3 text-center text-xs text-[var(--muted)]">
-                    Empty
+                    {t.job ? (
+                      <Link href={`/jobs/${t.job_id}`} className="text-xs text-[var(--accent-light)] hover:underline">
+                        {String(t.job)}
+                      </Link>
+                    ) : null}
                   </div>
-                ) : null}
+                  <span className={`shrink-0 text-xs ${overdue ? "text-red-600" : "text-[var(--muted)]"}`}>
+                    {String(t.due_on ?? "")}
+                  </span>
+                </div>
+              );
+            })
+          )}
+        </Card>
+
+        <Card title="Recent activity" href="/communications" hrefLabel="Inbox">
+          {updates.map((u, i) => (
+            <div key={i} className="border-b border-[var(--card-border)] py-2 text-sm last:border-0">
+              <span className={`mr-2 rounded-full px-2 py-0.5 text-[10px] ${tone(String(u.kind) === "stage" ? "Sent" : "Draft")}`}>
+                {String(u.kind)}
+              </span>
+              {String(u.body)}
+              <div className="mt-0.5 text-xs text-[var(--muted)]">
+                <Link href={`/jobs/${u.job_id}`} className="text-[var(--accent-light)] hover:underline">
+                  {String(u.job)}
+                </Link>{" "}
+                · {String(u.actor)} · {daysSince(String(u.created_at))}d ago
               </div>
             </div>
-          );
-        })}
+          ))}
+        </Card>
+
+        <Card title="Pipeline" href="/jobs" hrefLabel="Board">
+          {STAGES.filter((s) => s !== "Closed").map((s) => {
+            const row = stages.find((r) => r.stage === s);
+            const max = Math.max(1, ...open.map((r) => r.v));
+            return (
+              <div key={s} className="py-1.5">
+                <div className="flex justify-between text-xs">
+                  <span>
+                    {s} <span className="text-[var(--muted)]">({row?.n ?? 0})</span>
+                  </span>
+                  <span className="tabular-nums text-[var(--muted)]">{usd(row?.v ?? 0)}</span>
+                </div>
+                <div className="mt-1 h-2 rounded bg-black/5">
+                  <div
+                    className="h-2 rounded bg-[var(--accent-light)]"
+                    style={{ width: `${Math.max(1.5, ((row?.v ?? 0) / max) * 100)}%` }}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </Card>
+
+        <Card title="Upcoming production" href="/calendar" hrefLabel="Calendar">
+          {today.length === 0 ? (
+            <p className="text-sm text-[var(--muted)]">Nothing scheduled.</p>
+          ) : (
+            today.map((j) => (
+              <Link
+                key={String(j.id)}
+                href={`/jobs/${j.id}`}
+                className="flex items-center justify-between border-b border-[var(--card-border)] py-2 text-sm last:border-0 hover:text-[var(--accent-light)]"
+              >
+                <span>
+                  <span className="mr-2 font-mono text-xs text-[var(--muted)]">{String(j.scheduled_for)}</span>
+                  {String(j.title)}
+                </span>
+                <span className="rounded-full bg-black/5 px-2 py-0.5 text-xs">{String(j.trade)}</span>
+              </Link>
+            ))
+          )}
+        </Card>
       </div>
+    </div>
+  );
+}
+
+function Tile({ label, value, sub, alert }: { label: string; value: string; sub?: string; alert?: boolean }) {
+  return (
+    <div className="rounded-xl border border-[var(--card-border)] bg-[var(--card)] p-4">
+      <div className="text-xs text-[var(--muted)]">{label}</div>
+      <div className={`mt-1 text-2xl font-semibold ${alert ? "text-amber-700" : ""}`}>{value}</div>
+      {sub ? <div className="mt-0.5 truncate text-xs text-[var(--muted)]">{sub}</div> : null}
+    </div>
+  );
+}
+
+function Card({
+  title,
+  href,
+  hrefLabel,
+  children,
+}: {
+  title: string;
+  href?: string;
+  hrefLabel?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-xl border border-[var(--card-border)] bg-[var(--card)]">
+      <div className="flex items-center justify-between border-b border-[var(--card-border)] p-4">
+        <h2 className="font-semibold">{title}</h2>
+        {href ? (
+          <Link href={href} className="text-sm text-[var(--accent-light)] hover:underline">
+            {hrefLabel}
+          </Link>
+        ) : null}
+      </div>
+      <div className="p-4">{children}</div>
     </div>
   );
 }
