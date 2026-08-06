@@ -1,5 +1,10 @@
 name: roofline
 
+# Platform end-user auth (Build & Sell B2): the AMOS IdP owns signup, login,
+# orgs and sessions; this app only VERIFIES the EdDSA identity JWT against the
+# published JWKS. No auth code, no shared secret, no password storage.
+auth: true
+
 services:
   - name: web
     dockerfile: Dockerfile
@@ -18,3 +23,39 @@ services:
       timeout: 5
       healthy_threshold: 2
       unhealthy_threshold: 3
+
+# Customer-facing MCP surface (Build & Sell B3). Declared here; the live
+# publish is the receipted app_mcp_publish verb, because exposing tools to
+# customers is consequential and belongs in the proof ledger.
+mcp:
+  tools:
+    - name: list_jobs
+      description: List jobs in the pipeline, optionally filtered by stage.
+      http_method: GET
+      http_path: /api/jobs
+      classification: read
+    - name: get_job
+      description: The full job file — details, timeline, and measurement reports.
+      http_method: GET
+      http_path: /api/jobs/{id}
+      classification: read
+    - name: pipeline_summary
+      description: Job count and value by pipeline stage.
+      http_method: GET
+      http_path: /api/pipeline
+      classification: read
+    - name: create_lead
+      description: Capture a new lead and open its job file.
+      http_method: POST
+      http_path: /api/leads
+      classification: write
+    - name: advance_job_stage
+      description: Move a job to the next pipeline stage.
+      http_method: POST
+      http_path: /api/jobs/{id}/stage
+      classification: write
+    - name: order_measurement
+      description: Order a roof measurement report for a job.
+      http_method: POST
+      http_path: /api/jobs/{id}/measurement
+      classification: write
