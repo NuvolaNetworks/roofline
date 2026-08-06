@@ -14,8 +14,8 @@ export default async function Catalogue() {
     <div className="p-6 max-w-3xl">
       <h1 className="mb-1 text-xl font-semibold">Catalogue</h1>
       <p className="mb-4 text-sm text-[var(--muted)]">
-        SRS Roof Hub items carry live pricing once the integration key is set in
-        Settings; custom items (labor etc.) are yours.
+        SRS Roof Hub items carry live pricing through the governed AMOS connection;
+        custom items (labor etc.) are yours.
       </p>
       <div className="rounded-xl border border-[var(--card-border)] bg-[var(--card)]">
         <table className="w-full text-sm">

@@ -104,15 +104,3 @@ export async function createLead(formData: FormData) {
   ).run(Number(job.lastInsertRowid), "system", "Lead created", user.name);
   redirect(`/jobs/${job.lastInsertRowid}`);
 }
-
-export async function saveIntegrationKey(formData: FormData) {
-  const user = await currentUser();
-  if (!user || user.role === "rep") redirect("/login");
-  const key = String(formData.get("srs_key") ?? "").trim();
-  getDb()
-    .prepare(
-      "INSERT INTO settings (key, value) VALUES ('srs_roofhub_key', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-    )
-    .run(key);
-  revalidatePath("/settings");
-}

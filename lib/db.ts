@@ -79,10 +79,6 @@ export function getDb(): DatabaseSync {
       price_cents INTEGER NOT NULL,
       source TEXT NOT NULL DEFAULT 'custom'  -- srs_roofhub | custom
     );
-    CREATE TABLE IF NOT EXISTS settings (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
   `);
   seed(db);
   return db;
@@ -161,9 +157,4 @@ function seed(d: DatabaseSync) {
     ["LAB-INSTALL", "Labor — install per square", "square", 8500, "custom"],
   ];
   for (const c of cat) insCat.run(...c);
-
-  d.prepare("INSERT INTO settings (key, value) VALUES (?,?)").run(
-    "srs_roofhub_key",
-    "",
-  );
 }
