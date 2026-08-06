@@ -1,0 +1,20 @@
+name: roofline
+
+services:
+  - name: web
+    dockerfile: Dockerfile
+    image_name: roofline-web
+    tag: platform
+    public: true
+    ports:
+      - container_port: 3000
+    # Guaranteed share under contention (the cuspr lesson) — plenty for the
+    # demo tier; the app is a single Next.js server.
+    resources:
+      cpus: 1.0
+    health_check:
+      path: /up
+      interval: 30
+      timeout: 5
+      healthy_threshold: 2
+      unhealthy_threshold: 3
