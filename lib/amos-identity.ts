@@ -20,6 +20,12 @@ const JWKS_URL =
   process.env.AMOS_APP_AUTH_JWKS_URL ||
   "https://app.amoslabs.com/.well-known/amos-app-auth/jwks.json";
 const APP_ID = process.env.AMOS_APP_AUTH_APP_ID || "";
+// Expected token issuer. Prefer an explicit config; otherwise derive it from
+// the JWKS origin (the IdP signs and publishes keys at the same origin). Since
+// JWKS_URL always has a value, this is never empty — an unset issuer would be
+// a misconfiguration, and the strict compare below fails closed regardless.
+const EXPECTED_ISS =
+  process.env.AMOS_APP_AUTH_ISS || new URL(JWKS_URL).origin;
 const JWKS_TTL_MS = 5 * 60 * 1000;
 
 export interface AmosIdentity {
@@ -129,6 +135,9 @@ export async function verifyAmosIdentity(
   // treated as misconfiguration and fails closed rather than accepting any
   // audience.
   if (!APP_ID || claims.aud !== APP_ID) return null;
+  // iss must be the expected issuer — a valid signature from the right keys is
+  // not enough if the token was minted for a different issuer/environment.
+  if (!claims.iss || claims.iss !== EXPECTED_ISS) return null;
   if (!claims.org_id) return null;
   return claims;
 }
