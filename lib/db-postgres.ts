@@ -53,11 +53,18 @@ export function toPostgres(sql: string): string {
   return out;
 }
 
-/** TLS: on in production (encrypted; set DATABASE_SSL=verify for CA
- *  verification once the RDS bundle ships with the image), off for local
- *  dev. DATABASE_SSL=disable|no-verify|verify overrides. */
-function sslConfig(): false | { rejectUnauthorized: boolean } {
-  switch (process.env.DATABASE_SSL) {
+/** TLS to Postgres. In production the default now VERIFIES the server
+ *  certificate against the trust store (rejectUnauthorized: true), so a
+ *  MITM can't present a rogue cert. Escape hatches for environments still
+ *  wiring up a CA bundle:
+ *    DATABASE_SSL=verify     — force CA verification (also the prod default)
+ *    DATABASE_SSL=no-verify  — encrypt but skip verification (documented risk)
+ *    DATABASE_SSL=disable    — no TLS (local dev)
+ *  Outside production with no override, TLS stays off for local dev. */
+export function sslConfig(
+  env: Record<string, string | undefined> = process.env,
+): false | { rejectUnauthorized: boolean } {
+  switch (env.DATABASE_SSL) {
     case "disable":
       return false;
     case "no-verify":
@@ -65,7 +72,7 @@ function sslConfig(): false | { rejectUnauthorized: boolean } {
     case "verify":
       return { rejectUnauthorized: true };
     default:
-      return process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : false;
+      return env.NODE_ENV === "production" ? { rejectUnauthorized: true } : false;
   }
 }
 
