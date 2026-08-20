@@ -190,7 +190,7 @@ export function createSqliteDb(): Db {
   const db = new DatabaseSync(path);
   db.exec(SCHEMA);
   seed(db);
-  return {
+  const api: Db = {
     async all<T = Record<string, unknown>>(sql: string, ...params: SqlValue[]): Promise<T[]> {
       return db.prepare(sql).all(...params) as T[];
     },
@@ -201,10 +201,23 @@ export function createSqliteDb(): Db {
       const r = db.prepare(sql).run(...params);
       return { lastId: Number(r.lastInsertRowid ?? 0), changes: Number(r.changes) };
     },
+    // Single connection, so the same handle serves inside the transaction.
+    async transaction<T>(fn: (tx: Db) => Promise<T>): Promise<T> {
+      db.exec("BEGIN");
+      try {
+        const result = await fn(api);
+        db.exec("COMMIT");
+        return result;
+      } catch (err) {
+        db.exec("ROLLBACK");
+        throw err;
+      }
+    },
     async close(): Promise<void> {
       db.close();
     },
   };
+  return api;
 }
 
 function seed(d: DatabaseSync) {

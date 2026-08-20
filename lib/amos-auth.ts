@@ -153,38 +153,51 @@ export async function provisionFromIdentity(
   if (!isUuid(identity.org_id)) {
     throw new Error("identity org_id is not a UUID");
   }
-  const db = getDb();
 
-  let orgId = (
-    await db.get<{ id: string }>("SELECT id FROM orgs WHERE amos_tenant_id = ?", identity.org_id)
-  )?.id;
-  if (!orgId) {
-    orgId = randomUUID();
-    const name = identity.org_name?.trim() || `Org ${identity.org_id.slice(0, 8)}`;
-    await db.run(
-      "INSERT INTO orgs (id, name, amos_tenant_id, estimator_token) VALUES (?,?,?,?)",
-      orgId, name, identity.org_id, newEstimatorToken(),
+  // One transaction (M4): concurrent first-logins used to race between the
+  // existence check and the INSERT, and the loser 500'd on the amos_tenant_id
+  // UNIQUE constraint. INSERT ... ON CONFLICT DO NOTHING + re-select makes it
+  // safe — the loser simply adopts the winner's org — and the whole provision
+  // (org + defaults + user) commits atomically.
+  return getDb().transaction(async (tx) => {
+    const candidateOrgId = randomUUID();
+    const orgName = identity.org_name?.trim() || `Org ${identity.org_id.slice(0, 8)}`;
+    const created = await tx.run(
+      `INSERT INTO orgs (id, name, amos_tenant_id, estimator_token) VALUES (?,?,?,?)
+       ON CONFLICT (amos_tenant_id) DO NOTHING`,
+      candidateOrgId, orgName, identity.org_id, newEstimatorToken(),
     );
-    await seedOrgDefaults(db, orgId);
-  }
+    // Seed product defaults only for the writer that actually created the org.
+    if (created.changes > 0) {
+      await seedOrgDefaults(tx, candidateOrgId);
+    }
+    // Re-select resolves the org whether we won the insert or adopted an
+    // existing one (own or a concurrent winner's).
+    const orgId = (
+      await tx.get<{ id: string }>(
+        "SELECT id FROM orgs WHERE amos_tenant_id = ?",
+        identity.org_id,
+      )
+    )!.id;
 
-  const role = mapPlatformRole(identity.role);
-  const name = identity.name?.trim() || identity.email;
-  const existing = await db.get<{ id: number }>(
-    `SELECT id FROM users WHERE org_id = ? AND (amos_sub = ? OR email = ?)
-     ORDER BY (amos_sub = ?) DESC LIMIT 1`,
-    orgId, identity.sub, identity.email, identity.sub,
-  );
-  if (existing) {
-    await db.run(
-      "UPDATE users SET email = ?, name = ?, role = ?, amos_sub = ? WHERE id = ? AND org_id = ?",
-      identity.email, name, role, identity.sub, existing.id, orgId,
+    const role = mapPlatformRole(identity.role);
+    const name = identity.name?.trim() || identity.email;
+    const existing = await tx.get<{ id: number }>(
+      `SELECT id FROM users WHERE org_id = ? AND (amos_sub = ? OR email = ?)
+       ORDER BY (amos_sub = ?) DESC LIMIT 1`,
+      orgId, identity.sub, identity.email, identity.sub,
     );
-    return { userId: existing.id, orgId };
-  }
-  const inserted = await db.run(
-    "INSERT INTO users (org_id, email, name, role, amos_sub) VALUES (?,?,?,?,?)",
-    orgId, identity.email, name, role, identity.sub,
-  );
-  return { userId: inserted.lastId, orgId };
+    if (existing) {
+      await tx.run(
+        "UPDATE users SET email = ?, name = ?, role = ?, amos_sub = ? WHERE id = ? AND org_id = ?",
+        identity.email, name, role, identity.sub, existing.id, orgId,
+      );
+      return { userId: existing.id, orgId };
+    }
+    const inserted = await tx.run(
+      "INSERT INTO users (org_id, email, name, role, amos_sub) VALUES (?,?,?,?,?)",
+      orgId, identity.email, name, role, identity.sub,
+    );
+    return { userId: inserted.lastId, orgId };
+  });
 }

@@ -40,6 +40,10 @@ export interface Db {
   all<T = Record<string, unknown>>(sql: string, ...params: SqlValue[]): Promise<T[]>;
   get<T = Record<string, unknown>>(sql: string, ...params: SqlValue[]): Promise<T | undefined>;
   run(sql: string, ...params: SqlValue[]): Promise<RunResult>;
+  /** Run `fn` inside a single transaction, committing on success and rolling
+   *  back on any throw. The passed handle runs on the transaction's own
+   *  connection; use it (not the outer Db) for every statement inside. */
+  transaction<T>(fn: (tx: Db) => Promise<T>): Promise<T>;
   close(): Promise<void>;
 }
 

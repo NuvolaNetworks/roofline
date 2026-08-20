@@ -107,6 +107,22 @@ async function migrate(pool: Pool): Promise<void> {
   }
 }
 
+// A minimal query executor — both `pool.query` and a checked-out client's
+// `query` satisfy it, so the query methods work identically on the pool and
+// inside a transaction.
+type QueryFn = (
+  text: string,
+  params: SqlValue[],
+) => Promise<{ rows: unknown[]; rowCount: number | null }>;
+
+async function runWith(query: QueryFn, sql: string, params: SqlValue[]): Promise<RunResult> {
+  const wantsId = /^\s*insert\b/i.test(sql) && !/\breturning\b/i.test(sql);
+  const text = wantsId ? `${toPostgres(sql)} RETURNING id` : toPostgres(sql);
+  const res = await query(text, params);
+  const id = wantsId ? (res.rows[0] as { id?: unknown } | undefined)?.id : undefined;
+  return { lastId: typeof id === "number" ? id : 0, changes: res.rowCount ?? 0 };
+}
+
 export function createPostgresDb(url: string): Db {
   installTypeParsers();
   const pool = new Pool({
@@ -130,11 +146,41 @@ export function createPostgresDb(url: string): Db {
     },
     async run(sql: string, ...params: SqlValue[]): Promise<RunResult> {
       await ensureReady();
-      const wantsId = /^\s*insert\b/i.test(sql) && !/\breturning\b/i.test(sql);
-      const text = wantsId ? `${toPostgres(sql)} RETURNING id` : toPostgres(sql);
-      const res = await pool.query(text, params);
-      const id = wantsId ? (res.rows[0] as { id?: unknown } | undefined)?.id : undefined;
-      return { lastId: typeof id === "number" ? id : 0, changes: res.rowCount ?? 0 };
+      return runWith((t, p) => pool.query(t, p), sql, params);
+    },
+    async transaction<T>(fn: (tx: Db) => Promise<T>): Promise<T> {
+      await ensureReady();
+      const client = await pool.connect();
+      const q: QueryFn = (t, p) => client.query(t, p);
+      const tx: Db = {
+        async all<R = Record<string, unknown>>(sql: string, ...params: SqlValue[]): Promise<R[]> {
+          return (await client.query(toPostgres(sql), params)).rows as R[];
+        },
+        async get<R = Record<string, unknown>>(sql: string, ...params: SqlValue[]): Promise<R | undefined> {
+          return ((await client.query(toPostgres(sql), params)).rows[0] as R) ?? undefined;
+        },
+        async run(sql: string, ...params: SqlValue[]): Promise<RunResult> {
+          return runWith(q, sql, params);
+        },
+        // Already inside a transaction — reuse this connection, no nested BEGIN.
+        transaction<R>(inner: (tx: Db) => Promise<R>): Promise<R> {
+          return inner(tx);
+        },
+        async close(): Promise<void> {
+          /* the pool owns the client lifecycle; released below */
+        },
+      };
+      try {
+        await client.query("BEGIN");
+        const result = await fn(tx);
+        await client.query("COMMIT");
+        return result;
+      } catch (err) {
+        await client.query("ROLLBACK").catch(() => {});
+        throw err;
+      } finally {
+        client.release();
+      }
     },
     async close(): Promise<void> {
       await pool.end();
