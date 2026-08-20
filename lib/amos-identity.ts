@@ -27,6 +27,9 @@ export interface AmosIdentity {
   org_id: string;
   email: string;
   role: string;
+  /** Optional display claims — used at org/user provisioning when present. */
+  name?: string;
+  org_name?: string;
   plan_key: string;
   entitlements: string[];
   subscription_status: string;

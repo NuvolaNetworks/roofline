@@ -6,16 +6,17 @@ import { daysSince } from "@/lib/fmt";
 export const dynamic = "force-dynamic";
 
 export default async function InstantEstimatorAdmin() {
-  if (!(await currentUser())) redirect("/login");
-  const leads = getDb()
-    .prepare(
-      `SELECT j.id, j.title, j.address, j.created_at, c.name AS contact, m.total_squares
-       FROM jobs j LEFT JOIN contacts c ON c.id = j.contact_id
-       LEFT JOIN measurements m ON m.job_id = j.id AND m.provider = 'solar_estimate'
-       WHERE j.source = 'QR instant estimate' ORDER BY j.id DESC`,
-    )
-    .all() as Array<Record<string, unknown>>;
-  const url = "https://roofline.custom.amoslabs.com/estimate";
+  const user = await currentUser();
+  if (!user) redirect("/login");
+  const leads = await getDb().all(
+    `SELECT j.id, j.title, j.address, j.created_at, c.name AS contact, m.total_squares
+     FROM jobs j LEFT JOIN contacts c ON c.id = j.contact_id
+     LEFT JOIN measurements m ON m.job_id = j.id AND m.provider = 'solar_estimate'
+     WHERE j.org_id = ? AND j.source = 'QR instant estimate' ORDER BY j.id DESC`,
+    user.org_id,
+  );
+  // The org rides in the QR link so public submissions land in THIS org.
+  const url = `https://roofline.custom.amoslabs.com/estimate/form?org=${user.org_id}`;
   const qr = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(url)}`;
   return (
     <div className="max-w-3xl p-6">
@@ -30,7 +31,10 @@ export default async function InstantEstimatorAdmin() {
         <img src={qr} alt="Instant Estimator QR code" width={160} height={160} />
         <div>
           <div className="text-sm font-medium">Public estimate page</div>
-          <a href="/estimate/form" className="text-sm text-[var(--accent-light)] hover:underline">
+          <a
+            href={`/estimate/form?org=${user.org_id}`}
+            className="break-all text-sm text-[var(--accent-light)] hover:underline"
+          >
             {url}
           </a>
           <p className="mt-2 max-w-sm text-xs text-[var(--muted)]">

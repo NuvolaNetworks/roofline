@@ -15,15 +15,15 @@ const TRADE_COLORS: Record<string, string> = {
 export default async function CalendarPage() {
   const user = await currentUser();
   if (!user) redirect("/login");
-  const ids = visibleUserIds(user);
-  const jobs = getDb()
-    .prepare(
-      `SELECT j.id, j.title, j.trade, j.scheduled_for, u.name AS assignee
-       FROM jobs j JOIN users u ON u.id = j.assignee_id
-       WHERE j.scheduled_for IS NOT NULL AND j.assignee_id IN (${ids.map(() => "?").join(",")})
-       ORDER BY j.scheduled_for`,
-    )
-    .all(...ids) as Array<Record<string, unknown>>;
+  const ids = await visibleUserIds(user);
+  const jobs = await getDb().all(
+    `SELECT j.id, j.title, j.trade, j.scheduled_for, u.name AS assignee
+     FROM jobs j JOIN users u ON u.id = j.assignee_id
+     WHERE j.scheduled_for IS NOT NULL AND j.assignee_id IN (${ids.map(() => "?").join(",")})
+       AND j.org_id = ?
+     ORDER BY j.scheduled_for`,
+    ...ids, user.org_id,
+  );
 
   return (
     <div className="p-6 max-w-2xl">

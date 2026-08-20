@@ -10,50 +10,45 @@ export const dynamic = "force-dynamic";
 export default async function Home() {
   const user = await currentUser();
   if (!user) redirect("/login");
-  const ids = visibleUserIds(user);
+  const ids = await visibleUserIds(user);
   const ph = ids.map(() => "?").join(",");
   const db = getDb();
 
-  const tasks = db
-    .prepare(
-      `SELECT t.id, t.title, t.due_on, t.done, t.job_id, j.title AS job
-       FROM tasks t LEFT JOIN jobs j ON j.id = t.job_id
-       WHERE t.assignee_id IN (${ph}) ORDER BY t.done, t.due_on`,
-    )
-    .all(...ids) as Array<Record<string, unknown>>;
+  const tasks = await db.all(
+    `SELECT t.id, t.title, t.due_on, t.done, t.job_id, j.title AS job
+     FROM tasks t LEFT JOIN jobs j ON j.id = t.job_id
+     WHERE t.assignee_id IN (${ph}) AND t.org_id = ? ORDER BY t.done, t.due_on`,
+    ...ids, user.org_id,
+  );
 
-  const updates = db
-    .prepare(
-      `SELECT e.kind, e.body, e.actor, e.created_at, e.job_id, j.title AS job
-       FROM job_events e JOIN jobs j ON j.id = e.job_id
-       WHERE j.assignee_id IN (${ph}) ORDER BY e.id DESC LIMIT 8`,
-    )
-    .all(...ids) as Array<Record<string, unknown>>;
+  const updates = await db.all(
+    `SELECT e.kind, e.body, e.actor, e.created_at, e.job_id, j.title AS job
+     FROM job_events e JOIN jobs j ON j.id = e.job_id
+     WHERE j.assignee_id IN (${ph}) AND e.org_id = ? ORDER BY e.id DESC LIMIT 8`,
+    ...ids, user.org_id,
+  );
 
-  const stages = db
-    .prepare(
-      `SELECT stage, COUNT(*) AS n, COALESCE(SUM(value_cents),0) AS v
-       FROM jobs WHERE assignee_id IN (${ph}) GROUP BY stage`,
-    )
-    .all(...ids) as Array<{ stage: string; n: number; v: number }>;
+  const stages = await db.all<{ stage: string; n: number; v: number }>(
+    `SELECT stage, COUNT(*) AS n, COALESCE(SUM(value_cents),0) AS v
+     FROM jobs WHERE assignee_id IN (${ph}) AND org_id = ? GROUP BY stage`,
+    ...ids, user.org_id,
+  );
 
-  const today = db
-    .prepare(
-      `SELECT j.id, j.title, j.address, j.trade, j.scheduled_for
-       FROM jobs j WHERE j.assignee_id IN (${ph})
-         AND j.scheduled_for IS NOT NULL AND date(j.scheduled_for) >= date('now')
-       ORDER BY j.scheduled_for LIMIT 4`,
-    )
-    .all(...ids) as Array<Record<string, unknown>>;
+  const today = await db.all(
+    `SELECT j.id, j.title, j.address, j.trade, j.scheduled_for
+     FROM jobs j WHERE j.assignee_id IN (${ph}) AND j.org_id = ?
+       AND j.scheduled_for IS NOT NULL AND date(j.scheduled_for) >= date('now')
+     ORDER BY j.scheduled_for LIMIT 4`,
+    ...ids, user.org_id,
+  );
 
-  const money = db
-    .prepare(
-      `SELECT
-         COALESCE(SUM(CASE WHEN i.status != 'Paid' THEN i.amount_cents END),0) AS outstanding,
-         COALESCE(SUM(CASE WHEN i.status = 'Paid' AND i.paid_at > datetime('now','-30 days') THEN i.amount_cents END),0) AS collected
-       FROM invoices i JOIN jobs j ON j.id = i.job_id WHERE j.assignee_id IN (${ph})`,
-    )
-    .get(...ids) as { outstanding: number; collected: number };
+  const money = (await db.get<{ outstanding: number; collected: number }>(
+    `SELECT
+       COALESCE(SUM(CASE WHEN i.status != 'Paid' THEN i.amount_cents END),0) AS outstanding,
+       COALESCE(SUM(CASE WHEN i.status = 'Paid' AND i.paid_at > datetime('now','-30 days') THEN i.amount_cents END),0) AS collected
+     FROM invoices i JOIN jobs j ON j.id = i.job_id WHERE j.assignee_id IN (${ph}) AND i.org_id = ?`,
+    ...ids, user.org_id,
+  ))!;
 
   const open = stages.filter((s) => s.stage !== "Closed");
   const pipeline = open.reduce((s, r) => s + r.v, 0);

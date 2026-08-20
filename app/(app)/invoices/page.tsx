@@ -8,13 +8,14 @@ import { usd2, tone } from "@/lib/fmt";
 export const dynamic = "force-dynamic";
 
 export default async function Invoices() {
-  if (!(await currentUser())) redirect("/login");
-  const rows = getDb()
-    .prepare(
-      `SELECT i.*, j.title AS job, c.name AS contact FROM invoices i
-       JOIN jobs j ON j.id = i.job_id LEFT JOIN contacts c ON c.id = j.contact_id ORDER BY i.id DESC`,
-    )
-    .all() as Array<Record<string, unknown>>;
+  const user = await currentUser();
+  if (!user) redirect("/login");
+  const rows = await getDb().all(
+    `SELECT i.*, j.title AS job, c.name AS contact FROM invoices i
+     JOIN jobs j ON j.id = i.job_id LEFT JOIN contacts c ON c.id = j.contact_id
+     WHERE i.org_id = ? ORDER BY i.id DESC`,
+    user.org_id,
+  );
   const outstanding = rows.filter((r) => r.status !== "Paid").reduce((s, r) => s + Number(r.amount_cents), 0);
   const paid = rows.filter((r) => r.status === "Paid").reduce((s, r) => s + Number(r.amount_cents), 0);
   return (

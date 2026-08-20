@@ -8,15 +8,19 @@ import { tone } from "@/lib/fmt";
 export const dynamic = "force-dynamic";
 
 export default async function Documents() {
-  if (!(await currentUser())) redirect("/login");
+  const user = await currentUser();
+  if (!user) redirect("/login");
   const db = getDb();
-  const docs = db
-    .prepare(
-      `SELECT d.*, j.title AS job, t.name AS template FROM documents d
-       JOIN jobs j ON j.id = d.job_id LEFT JOIN templates t ON t.id = d.template_id ORDER BY d.id DESC`,
-    )
-    .all() as Array<Record<string, unknown>>;
-  const templates = db.prepare("SELECT * FROM templates ORDER BY kind").all() as Array<Record<string, unknown>>;
+  const docs = await db.all(
+    `SELECT d.*, j.title AS job, t.name AS template FROM documents d
+     JOIN jobs j ON j.id = d.job_id LEFT JOIN templates t ON t.id = d.template_id
+     WHERE d.org_id = ? ORDER BY d.id DESC`,
+    user.org_id,
+  );
+  const templates = await db.all(
+    "SELECT * FROM templates WHERE org_id = ? ORDER BY kind",
+    user.org_id,
+  );
   return (
     <div className="max-w-4xl p-6">
       <h1 className="mb-1 text-xl font-semibold">PDF Signer &amp; File Manager</h1>

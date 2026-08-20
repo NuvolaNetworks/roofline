@@ -7,17 +7,19 @@ import { usd, tone } from "@/lib/fmt";
 export const dynamic = "force-dynamic";
 
 export default async function Proposals() {
-  if (!(await currentUser())) redirect("/login");
-  const rows = getDb()
-    .prepare(
-      `SELECT p.*, j.title AS job, c.name AS contact
-       FROM proposals p JOIN jobs j ON j.id = p.job_id
-       LEFT JOIN contacts c ON c.id = j.contact_id ORDER BY p.id DESC`,
-    )
-    .all() as Array<Record<string, unknown>>;
-  const templates = getDb().prepare("SELECT * FROM templates WHERE kind = 'proposal'").all() as Array<
-    Record<string, unknown>
-  >;
+  const user = await currentUser();
+  if (!user) redirect("/login");
+  const rows = await getDb().all(
+    `SELECT p.*, j.title AS job, c.name AS contact
+     FROM proposals p JOIN jobs j ON j.id = p.job_id
+     LEFT JOIN contacts c ON c.id = j.contact_id
+     WHERE p.org_id = ? ORDER BY p.id DESC`,
+    user.org_id,
+  );
+  const templates = await getDb().all(
+    "SELECT * FROM templates WHERE org_id = ? AND kind = 'proposal'",
+    user.org_id,
+  );
   return (
     <div className="max-w-4xl p-6">
       <h1 className="mb-1 text-xl font-semibold">Proposals</h1>

@@ -1,7 +1,14 @@
 import { submitInstantEstimate } from "@/lib/actions";
 
-/** Public — no session. This is the QR/website lead capture. */
-export default function EstimateForm() {
+/** Public — no session. This is the QR/website lead capture. The target org
+ *  rides in the QR link (?org=<org uuid>); in demo mode it may be omitted and
+ *  submissions land in the demo org. */
+export default async function EstimateForm({
+  searchParams,
+}: {
+  searchParams: Promise<{ org?: string; error?: string }>;
+}) {
+  const { org = "", error } = await searchParams;
   const input = "w-full rounded-lg border border-[var(--card-border)] px-3 py-2 text-sm";
   return (
     <div className="flex min-h-screen items-center justify-center p-6">
@@ -11,7 +18,15 @@ export default function EstimateForm() {
           Enter your address and we&apos;ll size your roof from aerial imagery — no visit required. A specialist
           follows up with an exact quote.
         </p>
+        {error ? (
+          <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+            {error === "org"
+              ? "This estimate link is incomplete — please use the QR code or link your roofer shared."
+              : "Please give us your name and the property address."}
+          </p>
+        ) : null}
         <form action={submitInstantEstimate} className="space-y-3">
+          <input type="hidden" name="org" value={org} />
           <input name="name" required placeholder="Your name" className={input} />
           <input name="address" required placeholder="Property address" className={input} />
           <div className="flex gap-3">

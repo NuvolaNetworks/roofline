@@ -6,9 +6,10 @@ import { createLead } from "@/lib/actions";
 export default async function NewLead() {
   const user = await currentUser();
   if (!user) redirect("/login");
-  const reps = getDb()
-    .prepare("SELECT id, name FROM users ORDER BY name")
-    .all() as Array<{ id: number; name: string }>;
+  const reps = await getDb().all<{ id: number; name: string }>(
+    "SELECT id, name FROM users WHERE org_id = ? ORDER BY name",
+    user.org_id,
+  );
   const input =
     "w-full rounded-lg border border-[var(--card-border)] px-3 py-2 text-sm";
   return (

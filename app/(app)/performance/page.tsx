@@ -7,27 +7,25 @@ export const dynamic = "force-dynamic";
 export default async function Performance() {
   const user = await currentUser();
   if (!user) redirect("/login");
-  const ids = visibleUserIds(user);
+  const ids = await visibleUserIds(user);
   const ph = ids.map(() => "?").join(",");
   const db = getDb();
-  const rows = db
-    .prepare(
-      `SELECT u.name,
-              COUNT(*) AS jobs,
-              SUM(CASE WHEN j.stage IN ('Approved','Scheduled','Completed/Invoiced','Ready for Commission','Closed') THEN 1 ELSE 0 END) AS won,
-              COALESCE(SUM(CASE WHEN j.stage != 'Lead' THEN j.value_cents ELSE 0 END), 0) AS pipeline_cents
-       FROM jobs j JOIN users u ON u.id = j.assignee_id
-       WHERE j.assignee_id IN (${ph})
-       GROUP BY u.name ORDER BY pipeline_cents DESC`,
-    )
-    .all(...ids) as Array<Record<string, unknown>>;
-  const commission = db
-    .prepare(
-      `SELECT j.title, j.value_cents, u.name AS rep
-       FROM jobs j JOIN users u ON u.id = j.assignee_id
-       WHERE j.stage = 'Ready for Commission' AND j.assignee_id IN (${ph})`,
-    )
-    .all(...ids) as Array<Record<string, unknown>>;
+  const rows = await db.all(
+    `SELECT u.name,
+            COUNT(*) AS jobs,
+            SUM(CASE WHEN j.stage IN ('Approved','Scheduled','Completed/Invoiced','Ready for Commission','Closed') THEN 1 ELSE 0 END) AS won,
+            COALESCE(SUM(CASE WHEN j.stage != 'Lead' THEN j.value_cents ELSE 0 END), 0) AS pipeline_cents
+     FROM jobs j JOIN users u ON u.id = j.assignee_id
+     WHERE j.assignee_id IN (${ph}) AND j.org_id = ?
+     GROUP BY u.name ORDER BY pipeline_cents DESC`,
+    ...ids, user.org_id,
+  );
+  const commission = await db.all(
+    `SELECT j.title, j.value_cents, u.name AS rep
+     FROM jobs j JOIN users u ON u.id = j.assignee_id
+     WHERE j.stage = 'Ready for Commission' AND j.assignee_id IN (${ph}) AND j.org_id = ?`,
+    ...ids, user.org_id,
+  );
   const COMMISSION_RATE = 0.1;
 
   return (

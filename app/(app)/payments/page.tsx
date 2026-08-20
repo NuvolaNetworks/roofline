@@ -7,14 +7,15 @@ import { usd2 } from "@/lib/fmt";
 export const dynamic = "force-dynamic";
 
 export default async function Payments() {
-  if (!(await currentUser())) redirect("/login");
-  const rows = getDb()
-    .prepare(
-      `SELECT p.*, i.kind, i.job_id, j.title AS job, c.name AS contact FROM payments p
-       JOIN invoices i ON i.id = p.invoice_id JOIN jobs j ON j.id = i.job_id
-       LEFT JOIN contacts c ON c.id = j.contact_id ORDER BY p.received_at DESC`,
-    )
-    .all() as Array<Record<string, unknown>>;
+  const user = await currentUser();
+  if (!user) redirect("/login");
+  const rows = await getDb().all(
+    `SELECT p.*, i.kind, i.job_id, j.title AS job, c.name AS contact FROM payments p
+     JOIN invoices i ON i.id = p.invoice_id JOIN jobs j ON j.id = i.job_id
+     LEFT JOIN contacts c ON c.id = j.contact_id
+     WHERE p.org_id = ? ORDER BY p.received_at DESC`,
+    user.org_id,
+  );
   const total = rows.reduce((s, r) => s + Number(r.amount_cents), 0);
   return (
     <div className="max-w-4xl p-6">

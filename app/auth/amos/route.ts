@@ -1,0 +1,24 @@
+import { redirect } from "next/navigation";
+import { verifyAmosIdentity } from "@/lib/amos-identity";
+import { provisionFromIdentity } from "@/lib/amos-auth";
+import { authMode, establishSession } from "@/lib/auth";
+
+/**
+ * Platform-IdP login callback (AUTH_MODE=amos). The AMOS IdP owns signup and
+ * login; it lands the user here with the short-lived EdDSA identity JWT —
+ * as the `X-Amos-Identity` header when the platform proxies the redirect, or
+ * as ?token= on a direct redirect. We verify it against the published JWKS
+ * (lib/amos-identity.ts — no shared secret, no auth code), auto-provision the
+ * org/user on first login, and set the same HMAC session cookie demo mode
+ * uses. Everything downstream of currentUser() is identical in both modes.
+ */
+export async function GET(req: Request) {
+  if (authMode() !== "amos") redirect("/login?error=mode");
+  const token =
+    req.headers.get("x-amos-identity") ?? new URL(req.url).searchParams.get("token");
+  const identity = await verifyAmosIdentity(token);
+  if (!identity) redirect("/login?error=amos");
+  const { userId } = await provisionFromIdentity(identity);
+  await establishSession(userId);
+  redirect("/");
+}

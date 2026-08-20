@@ -7,9 +7,10 @@ export const dynamic = "force-dynamic";
 export default async function Contacts() {
   const user = await currentUser();
   if (!user) redirect("/login");
-  const contacts = getDb()
-    .prepare("SELECT * FROM contacts ORDER BY type, name")
-    .all() as Array<Record<string, unknown>>;
+  const contacts = await getDb().all(
+    "SELECT * FROM contacts WHERE org_id = ? ORDER BY type, name",
+    user.org_id,
+  );
   return (
     <div className="p-6 max-w-3xl">
       <h1 className="mb-4 text-xl font-semibold">Contacts</h1>
