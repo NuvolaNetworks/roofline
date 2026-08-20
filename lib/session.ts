@@ -37,10 +37,17 @@ export function resolveSessionSecret(
   env: Record<string, string | undefined> = process.env,
 ): string {
   const secret = env.ROOFLINE_SESSION_SECRET;
+  // `next build` evaluates modules with NODE_ENV=production while collecting
+  // page data, but nothing signs a cookie then — the runtime secret neither
+  // exists nor is needed yet. Skip the throw during the build phase so it
+  // doesn't kill the image build; the guard still fires at server start /
+  // request time (NEXT_PHASE is "phase-production-server" or unset then).
+  const buildPhase = env.NEXT_PHASE === "phase-production-build";
   const hardened =
-    env.NODE_ENV === "production" ||
-    env.AUTH_MODE === "amos" ||
-    Boolean(env.DATABASE_URL);
+    !buildPhase &&
+    (env.NODE_ENV === "production" ||
+      env.AUTH_MODE === "amos" ||
+      Boolean(env.DATABASE_URL));
   if (hardened) {
     if (!secret || secret === COMPROMISED_DEFAULT_SECRET) {
       throw new Error(

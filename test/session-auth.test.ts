@@ -70,6 +70,47 @@ test("C1: session secret fails closed outside pure demo", async (t) => {
     );
   });
 
+  await t.test("does NOT throw during the Next build phase", () => {
+    // `next build` runs modules with NODE_ENV=production but signs no cookies.
+    assert.equal(
+      resolveSessionSecret({
+        NODE_ENV: "production",
+        NEXT_PHASE: "phase-production-build",
+      }),
+      COMPROMISED_DEFAULT_SECRET,
+    );
+    assert.equal(
+      resolveSessionSecret({
+        DATABASE_URL: "postgres://db/roofline",
+        NEXT_PHASE: "phase-production-build",
+      }),
+      COMPROMISED_DEFAULT_SECRET,
+    );
+    // A real secret supplied at build time is still honored.
+    assert.equal(
+      resolveSessionSecret({
+        NODE_ENV: "production",
+        NEXT_PHASE: "phase-production-build",
+        ROOFLINE_SESSION_SECRET: strong,
+      }),
+      strong,
+    );
+  });
+
+  await t.test("STILL throws at runtime (server phase / unset) when unsafe", () => {
+    // The production server phase is not the build phase — guard must fire.
+    assert.throws(() =>
+      resolveSessionSecret({
+        NODE_ENV: "production",
+        NEXT_PHASE: "phase-production-server",
+      }),
+    );
+    // No NEXT_PHASE at all (e.g. a plain node server) also fails closed.
+    assert.throws(() =>
+      resolveSessionSecret({ DATABASE_URL: "postgres://db/roofline" }),
+    );
+  });
+
   await t.test("module load throws when the env is hardened + unsafe", async () => {
     const saved = { ...process.env };
     delete process.env.ROOFLINE_SESSION_SECRET;
