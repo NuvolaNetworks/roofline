@@ -33,7 +33,7 @@ globalThis.fetch = (async () =>
     headers: { "content-type": "application/json" },
   })) as typeof fetch;
 
-const { verifyAmosIdentity } = await import("../lib/amos-identity.ts");
+const { verifyAmosIdentity, pickIdentityToken } = await import("../lib/amos-identity.ts");
 
 const b64url = (s: string) => Buffer.from(s).toString("base64url");
 
@@ -93,5 +93,20 @@ test("M2: verifyAmosIdentity checks signature, aud, exp AND iss", async (t) => {
     const [h, , s] = token.split(".");
     const forged = b64url(JSON.stringify({ ...baseClaims(), role: "admin", sub: "attacker" }));
     assert.equal(await verifyAmosIdentity(`${h}.${forged}.${s}`), null);
+  });
+});
+
+test("M3: pickIdentityToken prefers the header over the query token", async (t) => {
+  await t.test("header wins when both are present", () => {
+    assert.deepEqual(pickIdentityToken("H", "Q"), { token: "H", fromQuery: false });
+  });
+  await t.test("query is only a (flagged) fallback", () => {
+    assert.deepEqual(pickIdentityToken(null, "Q"), { token: "Q", fromQuery: true });
+  });
+  await t.test("header alone is used and not flagged", () => {
+    assert.deepEqual(pickIdentityToken("H", null), { token: "H", fromQuery: false });
+  });
+  await t.test("neither present yields no token", () => {
+    assert.deepEqual(pickIdentityToken(null, null), { token: null, fromQuery: false });
   });
 });

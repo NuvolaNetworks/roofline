@@ -53,6 +53,22 @@ interface Jwk {
   alg?: string;
 }
 
+/**
+ * Choose where the identity token comes from, strongly preferring the
+ * `x-amos-identity` header. A token in the ?token= query string leaks into
+ * server logs, browser history and the Referer header and is replayable until
+ * exp, so it is only a fallback — and when it is used (fromQuery), the caller
+ * MUST redirect to a token-less URL immediately (see app/auth/amos/route.ts).
+ */
+export function pickIdentityToken(
+  headerToken: string | null,
+  queryToken: string | null,
+): { token: string | null; fromQuery: boolean } {
+  if (headerToken) return { token: headerToken, fromQuery: false };
+  if (queryToken) return { token: queryToken, fromQuery: true };
+  return { token: null, fromQuery: false };
+}
+
 let cache: { at: number; keys: Jwk[] } | null = null;
 
 async function jwks(): Promise<Jwk[]> {
