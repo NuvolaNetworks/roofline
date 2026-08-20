@@ -19,6 +19,11 @@
  *                  "source": "Referral", "stage": "New lead",
  *                  "value_cents": 0, "cost_cents": 0,
  *                  "scheduled_for": null, "created_at": null }],
+ *   "measurements":[{ "job_ref": "j1", "provider": "gaf_quickmeasure",
+ *                  "status": "delivered", "total_squares": 32.4,
+ *                  "ridge_ft": 64, "hip_ft": 38, "valley_ft": 41,
+ *                  "eave_ft": 152, "rake_ft": 96, "pitch": "6/12",
+ *                  "waste_pct": 12, "created_at": null }],
  *   "proposals":[{ "job_ref": "j1", "name": "…", "status": "Draft",
  *                  "total_cents": 0, "cost_cents": 0,
  *                  "lines": [{ "sku": "…", "name": "…", "unit": "…",
@@ -38,8 +43,10 @@
  *   - rows whose contact name / job title matches the demo seed data are
  *     skipped (and everything hanging off a skipped job is skipped with it);
  *   - idempotent on re-run: natural-key lookup before insert —
- *       contact  (org, name, address)
- *       job      (org, title, address)
+ *       contact     (org, name, address)
+ *       job         (org, title, address)
+ *       measurement (org, job, provider, created_at)  — (org, job, provider)
+ *                    when the snapshot supplies no created_at
  *       proposal (org, job, name)         — lines only on first insert
  *       invoice  (org, job, kind, amount) — payments only on first insert
  *       task     (org, job, title)
@@ -72,6 +79,20 @@ interface SnapshotJob {
   value_cents?: number;
   cost_cents?: number;
   scheduled_for?: string | null;
+  created_at?: string | null;
+}
+interface SnapshotMeasurement {
+  job_ref: string;
+  provider: string;
+  status?: string;
+  total_squares?: number | null;
+  ridge_ft?: number | null;
+  hip_ft?: number | null;
+  valley_ft?: number | null;
+  eave_ft?: number | null;
+  rake_ft?: number | null;
+  pitch?: string | null;
+  waste_pct?: number | null;
   created_at?: string | null;
 }
 interface SnapshotProposalLine {
@@ -121,6 +142,7 @@ interface SnapshotEvent {
 export interface Snapshot {
   contacts?: SnapshotContact[];
   jobs?: SnapshotJob[];
+  measurements?: SnapshotMeasurement[];
   proposals?: SnapshotProposal[];
   invoices?: SnapshotInvoice[];
   tasks?: SnapshotTask[];
@@ -134,7 +156,7 @@ export interface ImportCounts {
   skippedDangling: number;
 }
 export type ImportReport = Record<
-  "contacts" | "jobs" | "proposals" | "invoices" | "tasks" | "events",
+  "contacts" | "jobs" | "measurements" | "proposals" | "invoices" | "tasks" | "events",
   ImportCounts
 >;
 
@@ -146,7 +168,7 @@ export async function importSnapshot(orgId: string, snapshot: Snapshot): Promise
   if (!org) throw new Error(`org ${orgId} does not exist — provision it (first login) before importing`);
 
   const report: ImportReport = {
-    contacts: zero(), jobs: zero(), proposals: zero(),
+    contacts: zero(), jobs: zero(), measurements: zero(), proposals: zero(),
     invoices: zero(), tasks: zero(), events: zero(),
   };
 
@@ -217,6 +239,42 @@ export async function importSnapshot(orgId: string, snapshot: Snapshot): Promise
     }
     return id;
   };
+
+  // ── Measurements ──
+  // Natural key (job_id, provider, created_at): a job can hold several reports
+  // from the same provider, distinguished by when they were pulled. A NULL
+  // snapshot created_at defaults to now() at insert, so re-runs must compare
+  // against the value that was actually stored — hence the round-trip below.
+  for (const meas of snapshot.measurements ?? []) {
+    const jobId = jobFor(meas.job_ref, "measurements");
+    if (jobId === null) continue;
+    const existing = meas.created_at
+      ? await db.get<{ id: number }>(
+          "SELECT id FROM measurements WHERE org_id = ? AND job_id = ? AND provider = ? AND created_at = ?",
+          orgId, jobId, meas.provider, meas.created_at,
+        )
+      : await db.get<{ id: number }>(
+          // Without a supplied timestamp, treat one row per (job, provider) as
+          // the same report — re-running an undated snapshot stays idempotent.
+          "SELECT id FROM measurements WHERE org_id = ? AND job_id = ? AND provider = ?",
+          orgId, jobId, meas.provider,
+        );
+    if (existing) {
+      report.measurements.existing++;
+      continue;
+    }
+    await db.run(
+      `INSERT INTO measurements (org_id, job_id, provider, status, total_squares,
+                                 ridge_ft, hip_ft, valley_ft, eave_ft, rake_ft,
+                                 pitch, waste_pct, created_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?, COALESCE(?, datetime('now')))`,
+      orgId, jobId, meas.provider, meas.status ?? "delivered",
+      meas.total_squares ?? null, meas.ridge_ft ?? null, meas.hip_ft ?? null,
+      meas.valley_ft ?? null, meas.eave_ft ?? null, meas.rake_ft ?? null,
+      meas.pitch ?? null, meas.waste_pct ?? null, meas.created_at ?? null,
+    );
+    report.measurements.inserted++;
+  }
 
   // ── Proposals (+ lines) ──
   for (const p of snapshot.proposals ?? []) {
