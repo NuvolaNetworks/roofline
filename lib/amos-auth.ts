@@ -46,6 +46,71 @@ export function mapPlatformRole(role: string | undefined): "admin" | "manager" |
   }
 }
 
+interface AppUser {
+  id: number;
+  role: "admin" | "manager" | "rep";
+  manager_id: number | null;
+}
+
+/**
+ * Look up the app user backing a verified identity within an org — read-only
+ * (provisioning is an interactive act). Matches by IdP subject first, then
+ * email, exactly like provisionFromIdentity.
+ */
+export async function findUserForIdentity(
+  orgId: string,
+  identity: AmosIdentity,
+): Promise<AppUser | null> {
+  return (
+    (await getDb().get<AppUser>(
+      `SELECT id, role, manager_id FROM users
+       WHERE org_id = ? AND (amos_sub = ? OR email = ?)
+       ORDER BY (amos_sub = ?) DESC LIMIT 1`,
+      orgId, identity.sub, identity.email, identity.sub,
+    )) ?? null
+  );
+}
+
+/**
+ * The user ids whose jobs an /api identity may see, mirroring the UI's
+ * visibleUserIds fencing so the MCP surface is not more permissive than the
+ * app: a user is scoped to their own manager subtree (rep → self only).
+ *
+ * Returns null to mean "no rep filter — the whole org" (used only for a
+ * privileged identity with no provisioned user row to anchor a subtree).
+ * Fails closed: a rep-level identity with no user row sees nothing ([]).
+ */
+export async function visibleUserIdsForIdentity(
+  orgId: string,
+  identity: AmosIdentity,
+): Promise<number[] | null> {
+  const user = await findUserForIdentity(orgId, identity);
+  if (!user) {
+    // No row to anchor a subtree: reps see nothing; admins/managers (the
+    // privileged roles) fall back to the whole org rather than being locked
+    // out of their own MCP surface.
+    return mapPlatformRole(identity.role) === "rep" ? [] : null;
+  }
+  const all = await getDb().all<{ id: number; manager_id: number | null }>(
+    "SELECT id, manager_id FROM users WHERE org_id = ?",
+    orgId,
+  );
+  const children = new Map<number | null, number[]>();
+  for (const u of all) {
+    const list = children.get(u.manager_id) ?? [];
+    list.push(u.id);
+    children.set(u.manager_id, list);
+  }
+  const out: number[] = [];
+  const stack = [user.id];
+  while (stack.length) {
+    const id = stack.pop()!;
+    out.push(id);
+    for (const c of children.get(id) ?? []) stack.push(c);
+  }
+  return out;
+}
+
 /** Our org id for a platform tenant, or null when no mapping exists. */
 export async function findOrgByTenant(tenantId: string): Promise<string | null> {
   if (!isUuid(tenantId)) return null;

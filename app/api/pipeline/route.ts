@@ -1,13 +1,16 @@
 import { getDb, STAGES } from "@/lib/db";
-import { requireOrgIdentity } from "@/lib/api-guard";
+import { requireOrgIdentity, repScopeClause } from "@/lib/api-guard";
 
-/** GET /api/pipeline — the org's job count and value by stage. */
+/** GET /api/pipeline — the org's job count and value by stage, rep-scoped to
+ *  the identity's visible users (mirrors the UI) so money isn't over-shared. */
 export async function GET(req: Request) {
   const auth = await requireOrgIdentity(req);
   if ("error" in auth) return auth.error;
+  const scope = await repScopeClause(auth.orgId, auth.identity);
   const rows = await getDb().all<{ stage: string; jobs: number; value_cents: number }>(
-    "SELECT stage, COUNT(*) AS jobs, COALESCE(SUM(value_cents),0) AS value_cents FROM jobs WHERE org_id = ? GROUP BY stage",
-    auth.orgId,
+    `SELECT stage, COUNT(*) AS jobs, COALESCE(SUM(value_cents),0) AS value_cents
+     FROM jobs WHERE org_id = ?${scope.sql} GROUP BY stage`,
+    auth.orgId, ...scope.params,
   );
   const byStage = STAGES.map((s) => {
     const r = rows.find((x) => x.stage === s);

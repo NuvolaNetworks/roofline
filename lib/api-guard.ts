@@ -9,8 +9,9 @@
  * has provisioned (an owner signing in at /auth/amos) are rejected — the MCP
  * surface never conjures an org into being.
  */
-import { verifyAmosIdentity, type AmosIdentity } from "./amos-identity";
-import { findOrgByTenant } from "./amos-auth";
+import { verifyAmosIdentity, type AmosIdentity } from "./amos-identity.ts";
+import { findOrgByTenant, visibleUserIdsForIdentity } from "./amos-auth.ts";
+import type { SqlValue } from "./db.ts";
 
 export async function requireIdentity(
   req: Request,
@@ -51,7 +52,23 @@ export async function requireOrgIdentity(
   return { identity: auth.identity, orgId };
 }
 
-/** Role → which reps' jobs this identity may see (mirrors the UI's fencing). */
-export function scopeForRole(role: string, email: string) {
-  return { role, email, repScoped: role === "member" };
+/**
+ * Build the rep-scoping fragment for a jobs query, mirroring the UI's
+ * visibleUserIds fencing (see lib/amos-auth). Returns a SQL fragment plus its
+ * params to splice after an existing WHERE, e.g.
+ *   `SELECT ... FROM jobs j WHERE j.org_id = ?` + clause.sql
+ * `column` is the assignee column to filter (qualified when the query joins).
+ */
+export async function repScopeClause(
+  orgId: string,
+  identity: AmosIdentity,
+  column = "assignee_id",
+): Promise<{ sql: string; params: SqlValue[] }> {
+  const ids = await visibleUserIdsForIdentity(orgId, identity);
+  if (ids === null) return { sql: "", params: [] }; // whole org
+  if (ids.length === 0) return { sql: " AND 1 = 0", params: [] }; // sees nothing
+  return {
+    sql: ` AND ${column} IN (${ids.map(() => "?").join(",")})`,
+    params: ids,
+  };
 }
