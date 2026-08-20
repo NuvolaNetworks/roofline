@@ -12,6 +12,9 @@ WORKDIR /app
 ENV NODE_ENV=production PORT=3000 HOSTNAME=0.0.0.0
 COPY --from=build /app/.next/standalone ./
 COPY --from=build /app/.next/static ./.next/static
+# Migrations are read from disk at boot (migrate-on-boot runner); the
+# standalone trace doesn't know about them.
+COPY --from=build /app/migrations ./migrations
 RUN mkdir -p data
 EXPOSE 3000
 CMD ["node", "server.js"]

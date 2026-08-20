@@ -5,14 +5,21 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "test": "node --test \"test/*.test.ts\"",
+    "import:snapshot": "node scripts/import-snapshot.ts"
+  },
+  "engines": {
+    "node": ">=22.18"
   },
   "dependencies": {
     "next": "16.2.3",
+    "pg": "^8.16.3",
     "react": "19.2.4",
     "react-dom": "19.2.4"
   },
   "devDependencies": {
+    "@types/pg": "^8.15.5",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^24",
     "@types/react": "^19",
