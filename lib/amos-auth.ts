@@ -12,7 +12,7 @@
  * Deliberately free of next/* imports so tests can exercise the mapping
  * outside a Next server.
  */
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { getDb, type Db } from "./db.ts";
 import type { AmosIdentity } from "./amos-identity.ts";
 import {
@@ -25,6 +25,12 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 export function isUuid(value: string): boolean {
   return UUID_RE.test(value);
+}
+
+/** A random, non-enumerable, revocable token for the public estimator link
+ *  (H1). ~256 bits of entropy, url-safe. Rotating it invalidates old signs. */
+export function newEstimatorToken(): string {
+  return randomBytes(32).toString("base64url");
 }
 
 /** Platform role claim → app role. Unknown roles get least privilege. */
@@ -91,8 +97,8 @@ export async function provisionFromIdentity(
     orgId = randomUUID();
     const name = identity.org_name?.trim() || `Org ${identity.org_id.slice(0, 8)}`;
     await db.run(
-      "INSERT INTO orgs (id, name, amos_tenant_id) VALUES (?,?,?)",
-      orgId, name, identity.org_id,
+      "INSERT INTO orgs (id, name, amos_tenant_id, estimator_token) VALUES (?,?,?,?)",
+      orgId, name, identity.org_id, newEstimatorToken(),
     );
     await seedOrgDefaults(db, orgId);
   }

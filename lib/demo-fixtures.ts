@@ -15,6 +15,9 @@ import type { Stage } from "./db.ts";
 /** Fixed org id for the sqlite demo database (DATABASE_URL unset). */
 export const DEMO_ORG_ID = "00000000-0000-4000-8000-000000000001";
 export const DEMO_ORG_NAME = "Roofline Demo Co";
+/** Fixed public estimator token for the demo org, so the demo QR/link flow is
+ *  stable without exposing the org PK (H1). Real orgs get a random one. */
+export const DEMO_ESTIMATOR_TOKEN = "demo-estimator-000000000000000000000000";
 
 /** [email, name, role, manager index into this array (or null), password] */
 export const DEMO_USERS: ReadonlyArray<

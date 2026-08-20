@@ -11,6 +11,7 @@ import type { Db, RunResult, SqlValue, Stage } from "./db.ts";
 import {
   DEMO_ORG_ID,
   DEMO_ORG_NAME,
+  DEMO_ESTIMATOR_TOKEN,
   DEMO_USERS,
   DEMO_CONTACTS,
   DEMO_JOBS,
@@ -24,6 +25,7 @@ const SCHEMA = `
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     amos_tenant_id TEXT UNIQUE,
+    estimator_token TEXT UNIQUE,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
   CREATE TABLE IF NOT EXISTS users (
@@ -210,7 +212,9 @@ function seed(d: DatabaseSync) {
   if (n.n > 0) return;
 
   const org = DEMO_ORG_ID;
-  d.prepare("INSERT INTO orgs (id, name, amos_tenant_id) VALUES (?,?,NULL)").run(org, DEMO_ORG_NAME);
+  d.prepare("INSERT INTO orgs (id, name, amos_tenant_id, estimator_token) VALUES (?,?,NULL,?)").run(
+    org, DEMO_ORG_NAME, DEMO_ESTIMATOR_TOKEN,
+  );
 
   const u = d.prepare(
     "INSERT INTO users (org_id, email, name, role, manager_id, password) VALUES (?,?,?,?,?,?)",

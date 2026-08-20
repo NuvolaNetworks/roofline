@@ -15,8 +15,14 @@ export default async function InstantEstimatorAdmin() {
      WHERE j.org_id = ? AND j.source = 'QR instant estimate' ORDER BY j.id DESC`,
     user.org_id,
   );
-  // The org rides in the QR link so public submissions land in THIS org.
-  const url = `https://roofline.custom.amoslabs.com/estimate/form?org=${user.org_id}`;
+  // A revocable estimator TOKEN rides in the QR link (never the org PK), so
+  // public submissions land in THIS org without exposing an enumerable id (H1).
+  const org = await getDb().get<{ estimator_token: string | null }>(
+    "SELECT estimator_token FROM orgs WHERE id = ?",
+    user.org_id,
+  );
+  const token = org?.estimator_token ?? "";
+  const url = `https://roofline.custom.amoslabs.com/estimate/form?token=${encodeURIComponent(token)}`;
   const qr = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(url)}`;
   return (
     <div className="max-w-3xl p-6">
@@ -32,7 +38,7 @@ export default async function InstantEstimatorAdmin() {
         <div>
           <div className="text-sm font-medium">Public estimate page</div>
           <a
-            href={`/estimate/form?org=${user.org_id}`}
+            href={`/estimate/form?token=${encodeURIComponent(token)}`}
             className="break-all text-sm text-[var(--accent-light)] hover:underline"
           >
             {url}

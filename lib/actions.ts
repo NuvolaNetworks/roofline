@@ -2,10 +2,11 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import { getDb, STAGES, type Stage } from "./db";
 import { authMode, currentUser, login, logout, type User } from "./auth";
-import { isUuid } from "./amos-auth";
-import { DEMO_ORG_ID } from "./demo-fixtures";
+import { DEMO_ESTIMATOR_TOKEN } from "./demo-fixtures";
+import { createFixedWindowLimiter } from "./rate-limit";
 
 /** Authenticated user, or bounce to login. Their org_id scopes every query
  *  in this file — org NEVER comes from client input. */
@@ -458,21 +459,36 @@ export async function toggleAutomation(automationId: number) {
 
 // ── Public instant estimator ─────────────────────────────────────────
 
-/** No session: this is the QR/website lead form. The target org rides in the
- *  QR link (?org=<org uuid>, embedded when the admin page renders the code) —
- *  in demo mode it defaults to the demo org. Write-only into that org: the
- *  form can create a lead there and read nothing. */
+// Best-effort in-process rate limit for the unauthenticated estimator, keyed
+// by estimator token + client IP. It caps casual abuse (and per-token flooding
+// of one org's pipeline); it is NOT a substitute for a CAPTCHA / edge WAF,
+// which is the intended follow-up. Per-instance only — resets on redeploy.
+const estimateRateLimited = createFixedWindowLimiter({ windowMs: 60_000, max: 5 });
+
+/** No session: this is the QR/website lead form. The target org is addressed
+ *  by its estimator TOKEN (?token=…), never its primary key — the token is
+ *  random, non-enumerable and revocable (H1). In demo mode it defaults to the
+ *  demo org's token. Write-only into that org: the form can create a lead
+ *  there and read nothing, and the row is tagged source='QR instant estimate'
+ *  so downstream treats its free-text as untrusted. */
 export async function submitInstantEstimate(formData: FormData) {
   const db = getDb();
   const name = String(formData.get("name") ?? "").trim();
   const address = String(formData.get("address") ?? "").trim();
-  if (!name || !address) redirect("/estimate/form?error=1");
-  let orgId = String(formData.get("org") ?? "").trim();
-  if (!orgId && authMode() === "demo") orgId = DEMO_ORG_ID;
-  const org = isUuid(orgId)
-    ? await db.get<{ id: string }>("SELECT id FROM orgs WHERE id = ?", orgId)
+  let token = String(formData.get("token") ?? "").trim();
+  if (!token && authMode() === "demo") token = DEMO_ESTIMATOR_TOKEN;
+  // Resolve the org strictly by token — a client-supplied id is never trusted.
+  const org = token
+    ? await db.get<{ id: string }>("SELECT id FROM orgs WHERE estimator_token = ?", token)
     : undefined;
   if (!org) redirect("/estimate/form?error=org");
+  const orgId = org.id;
+  if (!name || !address) redirect(`/estimate/form?token=${encodeURIComponent(token)}&error=1`);
+  const ip =
+    (await headers()).get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  if (estimateRateLimited(`${token}|${ip}`)) {
+    redirect(`/estimate/form?token=${encodeURIComponent(token)}&error=rate`);
+  }
   const contact = await db.run(
     "INSERT INTO contacts (org_id, name, type, phone, email, address) VALUES (?,?,?,?,?,?)",
     orgId, name, "Homeowner",

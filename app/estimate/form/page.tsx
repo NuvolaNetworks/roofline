@@ -1,14 +1,14 @@
 import { submitInstantEstimate } from "@/lib/actions";
 
-/** Public — no session. This is the QR/website lead capture. The target org
- *  rides in the QR link (?org=<org uuid>); in demo mode it may be omitted and
- *  submissions land in the demo org. */
+/** Public — no session. This is the QR/website lead capture. The target org is
+ *  addressed by its revocable estimator token (?token=…), never its PK; in demo
+ *  mode it may be omitted and submissions land in the demo org. */
 export default async function EstimateForm({
   searchParams,
 }: {
-  searchParams: Promise<{ org?: string; error?: string }>;
+  searchParams: Promise<{ token?: string; error?: string }>;
 }) {
-  const { org = "", error } = await searchParams;
+  const { token = "", error } = await searchParams;
   const input = "w-full rounded-lg border border-[var(--card-border)] px-3 py-2 text-sm";
   return (
     <div className="flex min-h-screen items-center justify-center p-6">
@@ -21,12 +21,14 @@ export default async function EstimateForm({
         {error ? (
           <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
             {error === "org"
-              ? "This estimate link is incomplete — please use the QR code or link your roofer shared."
-              : "Please give us your name and the property address."}
+              ? "This estimate link is incomplete or expired — please use the QR code or link your roofer shared."
+              : error === "rate"
+                ? "Too many requests just now — please wait a moment and try again."
+                : "Please give us your name and the property address."}
           </p>
         ) : null}
         <form action={submitInstantEstimate} className="space-y-3">
-          <input type="hidden" name="org" value={org} />
+          <input type="hidden" name="token" value={token} />
           <input name="name" required placeholder="Your name" className={input} />
           <input name="address" required placeholder="Property address" className={input} />
           <div className="flex gap-3">
