@@ -7,11 +7,14 @@
 // Default mode is amos when DATABASE_URL is set, demo otherwise. Everything
 // below currentUser() is mode-agnostic: the session resolves to a users row,
 // and that row's org_id scopes every query.
-import { createHmac, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
 import { getDb } from "./db";
+import {
+  SESSION_TTL_S,
+  makeSessionCookie,
+  readSession,
+} from "./session";
 
-const SECRET = process.env.ROOFLINE_SESSION_SECRET || "roofline-demo-secret";
 const COOKIE = "roofline_session";
 
 export type AuthMode = "amos" | "demo";
@@ -31,18 +34,24 @@ export interface User {
   manager_id: number | null;
 }
 
-function sign(value: string): string {
-  return createHmac("sha256", SECRET).update(value).digest("hex");
-}
-
-/** Set the session cookie for a users row — shared by both login modes. */
+/** Set the session cookie for a users row — shared by both login modes. The
+ *  signed payload carries the user's org and an absolute expiry, so a stale or
+ *  cross-org cookie is rejected at read time (see currentUser). */
 export async function establishSession(userId: number): Promise<void> {
-  const payload = String(userId);
-  (await cookies()).set(COOKIE, `${payload}.${sign(payload)}`, {
+  const row = await getDb().get<{ org_id: string }>(
+    "SELECT org_id FROM users WHERE id = ?",
+    userId,
+  );
+  const value = makeSessionCookie({
+    uid: userId,
+    org: row?.org_id ?? "",
+    exp: Math.floor(Date.now() / 1000) + SESSION_TTL_S,
+  });
+  (await cookies()).set(COOKIE, value, {
     httpOnly: true,
     sameSite: "lax",
     path: "/",
-    maxAge: 60 * 60 * 12,
+    maxAge: SESSION_TTL_S,
   });
 }
 
@@ -63,24 +72,17 @@ export async function logout(): Promise<void> {
 }
 
 export async function currentUser(): Promise<User | null> {
-  const raw = (await cookies()).get(COOKIE)?.value;
-  if (!raw) return null;
-  const dot = raw.lastIndexOf(".");
-  if (dot < 1) return null;
-  const payload = raw.slice(0, dot);
-  const mac = raw.slice(dot + 1);
-  const expect = sign(payload);
-  if (
-    mac.length !== expect.length ||
-    !timingSafeEqual(Buffer.from(mac), Buffer.from(expect))
-  ) {
-    return null;
-  }
+  const session = readSession((await cookies()).get(COOKIE)?.value);
+  if (!session) return null; // missing, tampered, or expired
   const user = await getDb().get<User>(
     "SELECT id, org_id, email, name, role, manager_id FROM users WHERE id = ?",
-    Number(payload),
+    session.uid,
   );
-  return user ?? null;
+  if (!user) return null;
+  // The org is pinned in the signed payload: reject a cookie whose user has
+  // since moved orgs (or a forged uid/org pairing).
+  if (session.org && user.org_id !== session.org) return null;
+  return user;
 }
 
 /** The user ids whose jobs this user may see: reps see themselves; managers
