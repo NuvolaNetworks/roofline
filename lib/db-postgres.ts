@@ -14,6 +14,7 @@
 //   date(col)              → substr(col, 1, 10)
 import { Pool, types } from "pg";
 import { readdir, readFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Db, RunResult, SqlValue } from "./db.ts";
 
@@ -53,26 +54,47 @@ export function toPostgres(sql: string): string {
   return out;
 }
 
+/** Path to the CA bundle used to verify the Postgres server certificate.
+ *  AWS RDS presents certs chained to its own CA, which isn't in Node's
+ *  default trust store — so verification needs an explicit `ca`. We ship the
+ *  RDS *global* bundle at certs/rds-global-bundle.pem; DATABASE_CA_BUNDLE
+ *  overrides it (e.g. a mounted bundle). Exported for tests. */
+export function caBundlePath(env: Record<string, string | undefined> = process.env): string {
+  return env.DATABASE_CA_BUNDLE || join(process.cwd(), "certs", "rds-global-bundle.pem");
+}
+
+/** Read the CA bundle from disk (synchronously — this runs once, at pool
+ *  construction). Throws if the file is missing, which fails closed: better
+ *  to refuse to start than to silently fall back to an unverified connection.
+ *  Exported for tests. */
+export function loadCaBundle(env: Record<string, string | undefined> = process.env): string {
+  return readFileSync(caBundlePath(env), "utf8");
+}
+
+export type SslConfig = false | { rejectUnauthorized: boolean; ca?: string };
+
 /** TLS to Postgres. In production the default now VERIFIES the server
- *  certificate against the trust store (rejectUnauthorized: true), so a
- *  MITM can't present a rogue cert. Escape hatches for environments still
- *  wiring up a CA bundle:
+ *  certificate against the bundled RDS CA (rejectUnauthorized: true + `ca`),
+ *  so a MITM can't present a rogue cert. Escape hatches:
  *    DATABASE_SSL=verify     — force CA verification (also the prod default)
  *    DATABASE_SSL=no-verify  — encrypt but skip verification (documented risk)
  *    DATABASE_SSL=disable    — no TLS (local dev)
- *  Outside production with no override, TLS stays off for local dev. */
+ *  Outside production with no override, TLS stays off for local dev.
+ *  Note: the connection string must NOT carry sslmode=require — node-pg would
+ *  escalate to verify-full and ignore this object; the DATABASE_URL drops it. */
 export function sslConfig(
   env: Record<string, string | undefined> = process.env,
-): false | { rejectUnauthorized: boolean } {
+): SslConfig {
+  const verify = (): SslConfig => ({ rejectUnauthorized: true, ca: loadCaBundle(env) });
   switch (env.DATABASE_SSL) {
     case "disable":
       return false;
     case "no-verify":
       return { rejectUnauthorized: false };
     case "verify":
-      return { rejectUnauthorized: true };
+      return verify();
     default:
-      return env.NODE_ENV === "production" ? { rejectUnauthorized: true } : false;
+      return env.NODE_ENV === "production" ? verify() : false;
   }
 }
 
