@@ -35,7 +35,8 @@ renders identically — a later migration can move to `timestamptz`.
 | Variable | Meaning |
 | --- | --- |
 | `DATABASE_URL` | Postgres connection string. Unset → demo sqlite. |
-| `DATABASE_SSL` | `disable` \| `no-verify` \| `verify`. Default: TLS (without CA verification) when `NODE_ENV=production`, off otherwise. Use `disable` for a local non-SSL Postgres, `verify` once a CA bundle is in the image. |
+| `DATABASE_SSL` | `disable` \| `no-verify` \| `verify`. Default: `verify` when `NODE_ENV=production` (verifies the server cert against the bundled AWS RDS CA — `rejectUnauthorized` + `ca`), off otherwise. `verify` is the production setting. `no-verify` encrypts without verifying (temporary escape hatch); `disable` is plaintext for a local non-SSL Postgres. Do **not** add `sslmode=require` to `DATABASE_URL` — node-pg would escalate to verify-full and override this. |
+| `DATABASE_CA_BUNDLE` | Path to the CA bundle for `verify`. Default: the shipped `certs/rds-global-bundle.pem` (AWS RDS global bundle). Override to mount your own. |
 | `DATABASE_POOL_MAX` | Pool size (default 10). |
 | `AUTH_MODE` | `amos` \| `demo`. Default: `amos` when `DATABASE_URL` is set, `demo` otherwise. |
 | `AMOS_APP_AUTH_APP_ID` | This app's id — the required `aud` of identity tokens. Fails closed when unset. |
