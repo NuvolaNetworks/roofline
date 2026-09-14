@@ -15,6 +15,9 @@ COPY --from=build /app/.next/static ./.next/static
 # Migrations are read from disk at boot (migrate-on-boot runner); the
 # standalone trace doesn't know about them.
 COPY --from=build /app/migrations ./migrations
+# AWS RDS global CA bundle — read at pool construction to verify the server
+# cert (DATABASE_SSL=verify / production default). Public certs, no secrets.
+COPY --from=build /app/certs ./certs
 RUN mkdir -p data
 EXPOSE 3000
 CMD ["node", "server.js"]

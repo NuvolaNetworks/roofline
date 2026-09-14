@@ -35,7 +35,7 @@ renders identically — a later migration can move to `timestamptz`.
 | Variable | Meaning |
 | --- | --- |
 | `DATABASE_URL` | Postgres connection string. Unset → demo sqlite. |
-| `DATABASE_SSL` | `disable` \| `no-verify` \| `verify`. Default: TLS (without CA verification) when `NODE_ENV=production`, off otherwise. Use `disable` for a local non-SSL Postgres, `verify` once a CA bundle is in the image. |
+| `DATABASE_SSL` | `disable` \| `no-verify` \| `verify`. Default in production: `verify` against the bundled RDS CA (`certs/rds-global-bundle.pem`). `DATABASE_CA_BUNDLE` overrides the path. |
 | `DATABASE_POOL_MAX` | Pool size (default 10). |
 | `AUTH_MODE` | `amos` \| `demo`. Default: `amos` when `DATABASE_URL` is set, `demo` otherwise. |
 | `AMOS_APP_AUTH_APP_ID` | This app's id — the required `aud` of identity tokens. Fails closed when unset. |
