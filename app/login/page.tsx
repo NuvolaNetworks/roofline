@@ -1,5 +1,7 @@
+import { headers } from "next/headers";
 import { loginAction } from "@/lib/actions";
 import { authMode } from "@/lib/auth";
+import { platformIdpLoginUrl } from "@/lib/amos-identity";
 
 const ERRORS: Record<string, string> = {
   "1": "Wrong email or password.",
@@ -14,11 +16,11 @@ export default async function LoginPage({
 }) {
   const { error } = await searchParams;
   const mode = authMode();
-  const amosLoginUrl =
-    process.env.AMOS_APP_AUTH_LOGIN_URL ||
-    `https://app.amoslabs.com/app-auth/login?app_id=${encodeURIComponent(
-      process.env.AMOS_APP_AUTH_APP_ID ?? "",
-    )}`;
+  const hdrs = await headers();
+  const host =
+    hdrs.get("x-forwarded-host") ?? hdrs.get("host") ?? "roofline.custom.amoslabs.com";
+  const proto = hdrs.get("x-forwarded-proto") ?? "https";
+  const amosLoginUrl = platformIdpLoginUrl(`${proto}://${host}/auth/callback`);
   return (
     <div className="min-h-screen flex items-center justify-center p-6">
       <div className="w-full max-w-sm rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-8 shadow-sm">

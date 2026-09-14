@@ -20,6 +20,22 @@ const JWKS_URL =
   process.env.AMOS_APP_AUTH_JWKS_URL ||
   "https://app.amoslabs.com/.well-known/amos-app-auth/jwks.json";
 const APP_ID = process.env.AMOS_APP_AUTH_APP_ID || "";
+const PLATFORM_BASE = new URL(JWKS_URL).origin;
+
+/**
+ * Platform IdP login URL. The route is `/app-auth/{app_id}/login`, not
+ * `/app-auth/login?app_id=…` — the latter 404s on the platform with
+ * `route_not_found`. `redirect_uri` must be HTTPS on a host the app has
+ * registered; after login the IdP returns the identity JWT in the URL
+ * fragment (`#amos_token=`).
+ */
+export function platformIdpLoginUrl(redirectUri: string): string {
+  if (process.env.AMOS_APP_AUTH_LOGIN_URL) return process.env.AMOS_APP_AUTH_LOGIN_URL;
+  if (!APP_ID) return `${PLATFORM_BASE}/app-auth/login`;
+  const url = new URL(`${PLATFORM_BASE}/app-auth/${APP_ID}/login`);
+  url.searchParams.set("redirect_uri", redirectUri);
+  return url.toString();
+}
 // Expected token issuer. Prefer an explicit config; otherwise derive it from
 // the JWKS origin (the IdP signs and publishes keys at the same origin). Since
 // JWKS_URL always has a value, this is never empty — an unset issuer would be

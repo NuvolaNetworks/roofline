@@ -33,7 +33,10 @@ globalThis.fetch = (async () =>
     headers: { "content-type": "application/json" },
   })) as typeof fetch;
 
-const { verifyAmosIdentity, pickIdentityToken } = await import("../lib/amos-identity.ts");
+delete process.env.AMOS_APP_AUTH_LOGIN_URL;
+const { verifyAmosIdentity, pickIdentityToken, platformIdpLoginUrl } = await import(
+  "../lib/amos-identity.ts"
+);
 
 const b64url = (s: string) => Buffer.from(s).toString("base64url");
 
@@ -109,4 +112,13 @@ test("M3: pickIdentityToken prefers the header over the query token", async (t) 
   await t.test("neither present yields no token", () => {
     assert.deepEqual(pickIdentityToken(null, null), { token: null, fromQuery: false });
   });
+});
+
+test("platform IdP login URL uses /app-auth/{app_id}/login, not ?app_id=", () => {
+  const url = platformIdpLoginUrl("https://roofline.custom.amoslabs.com/auth/callback");
+  assert.equal(
+    url,
+    "https://idp.example/app-auth/roofline-app/login?redirect_uri=https%3A%2F%2Froofline.custom.amoslabs.com%2Fauth%2Fcallback",
+  );
+  assert.equal(url.includes("/app-auth/login?"), false);
 });

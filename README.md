@@ -40,7 +40,7 @@ renders identically — a later migration can move to `timestamptz`.
 | `AUTH_MODE` | `amos` \| `demo`. Default: `amos` when `DATABASE_URL` is set, `demo` otherwise. |
 | `AMOS_APP_AUTH_APP_ID` | This app's id — the required `aud` of identity tokens. Fails closed when unset. |
 | `AMOS_APP_AUTH_JWKS_URL` | JWKS override (default `https://app.amoslabs.com/.well-known/amos-app-auth/jwks.json`). |
-| `AMOS_APP_AUTH_LOGIN_URL` | Where "Continue with AMOS" sends the user (default `https://app.amoslabs.com/app-auth/login?app_id=…`). |
+| `AMOS_APP_AUTH_LOGIN_URL` | Where "Continue with AMOS" sends the user. Default is `https://app.amoslabs.com/app-auth/{app_id}/login?redirect_uri=https://<this-host>/auth/callback` (path param, not `?app_id=`). |
 | `ROOFLINE_SESSION_SECRET` | HMAC key for the session cookie. |
 
 ## Org model
