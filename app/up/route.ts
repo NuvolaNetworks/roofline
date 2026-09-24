@@ -6,7 +6,8 @@ export function GET() {
   if (process.env.DATABASE_URL) {
     try {
       getDb().prepare("SELECT 1 AS ok").get();
-    } catch {
+    } catch (error) {
+      console.error("roofline database is not reachable", error);
       return new Response("db", { status: 500 });
     }
   }

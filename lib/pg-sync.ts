@@ -20,17 +20,22 @@ interface WorkerReply {
 const WORKER_SOURCE = `
 const { parentPort } = require("node:worker_threads");
 const { Client, types } = require("pg");
-const { writeFileSync } = require("node:fs");
+const { writeFileSync, renameSync } = require("node:fs");
 types.setTypeParser(20, (value) => Number(value));
 types.setTypeParser(1700, (value) => Number(value));
 
 let client = null;
+let chain = Promise.resolve();
 
-parentPort.on("message", async (message) => {
+parentPort.on("message", (message) => {
+  chain = chain.then(() => handle(message)).catch(() => {});
+});
+
+async function handle(message) {
   const finish = (body) => {
-    writeFileSync(message.outPath, JSON.stringify(body));
-    Atomics.store(message.flag, 0, 1);
-    Atomics.notify(message.flag, 0);
+    const tmp = message.outPath + ".tmp";
+    writeFileSync(tmp, JSON.stringify(body));
+    renameSync(tmp, message.outPath);
   };
   try {
     if (!client) {
@@ -45,12 +50,12 @@ parentPort.on("message", async (message) => {
       finish({ ok: true });
       return;
     }
-    const result = await client.query(message.sql, message.params);
+    const result = await client.query(message.sql, message.params || []);
     finish({ ok: true, rows: result.rows, rowCount: result.rowCount });
   } catch (error) {
     finish({ ok: false, error: String(error && error.message ? error.message : error) });
   }
-});
+}
 `;
 
 function sslConfig(connectionString: string): false | { rejectUnauthorized: boolean } | undefined {
@@ -81,22 +86,32 @@ function bridge(): Worker {
 function call(message: Record<string, unknown>): WorkerReply {
   const id = ++nextId;
   const outPath = join(tmpdir(), `roofline-pg-${process.pid}-${id}.json`);
-  const flag = new Int32Array(new SharedArrayBuffer(4));
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) throw new Error("DATABASE_URL is not set");
   bridge().postMessage({
     ...message,
     id,
     outPath,
-    flag,
     connectionString,
     ssl: sslConfig(connectionString),
   });
-  const status = Atomics.wait(flag, 0, 0, 30_000);
-  if (status === "timed-out") throw new Error("Roofline database call timed out");
+  const sleep = new Int32Array(new SharedArrayBuffer(4));
+  const started = Date.now();
+  while (!existsReady(outPath)) {
+    if (Date.now() - started > 30_000) throw new Error("Roofline database call timed out");
+    Atomics.wait(sleep, 0, 0, 25);
+  }
   const body = JSON.parse(readFileSync(outPath, "utf8")) as WorkerReply;
   if (!body.ok) throw new Error(body.error || "Roofline database call failed");
   return body;
+}
+
+function existsReady(path: string): boolean {
+  try {
+    return readFileSync(path, "utf8").length > 0;
+  } catch {
+    return false;
+  }
 }
 
 export function queryRaw(sql: string, params: unknown[] = []): WorkerReply {
