@@ -1,11 +1,22 @@
-// Demo/dev persistence: node:sqlite (Node >= 22, zero native deps — matters
-// because our npm hardening disables install scripts). Schema + seed run
-// idempotently at first touch. Phase 2 swaps this module for AMOS managed
-// Postgres; the query surface stays in this file to keep that mechanical.
+// Local demo keeps node:sqlite. Production sets DATABASE_URL (the platform
+// already injects the managed Postgres URL) and every page goes through that.
+// Existing rows are left in place: a database that already has users is not
+// reseeded. Schema + the demo seed run only on an empty database.
 import { DatabaseSync } from "node:sqlite";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
+import { execScript, queryRaw, statement } from "./pg-sync";
+import { postgresSchema, sequenceBumpSql, translateSql } from "./sql-compat.mjs";
 
-let db: DatabaseSync | null = null;
+interface SqlDatabase {
+  prepare(sql: string): {
+    get(...args: unknown[]): unknown;
+    all(...args: unknown[]): unknown[];
+    run(...args: unknown[]): { lastInsertRowid: number; changes: number };
+  };
+  exec(sql: string): void;
+}
+
+let db: SqlDatabase | null = null;
 
 /** Pipeline stages, per 8 Square's live board (assignment is its own stage). */
 export const STAGES = [
@@ -25,11 +36,7 @@ export const WORKFLOWS = ["Roofing", "Construction", "Service"] as const;
 
 export const COMMISSION_RATE = 0.1;
 
-export function getDb(): DatabaseSync {
-  if (db) return db;
-  mkdirSync("data", { recursive: true });
-  db = new DatabaseSync("data/roofline.db");
-  db.exec(`
+const SCHEMA = `
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY,
       email TEXT UNIQUE NOT NULL,
@@ -165,12 +172,94 @@ export function getDb(): DatabaseSync {
       enabled INTEGER NOT NULL DEFAULT 1,
       runs INTEGER NOT NULL DEFAULT 0
     );
-  `);
-  seed(db);
+`;
+
+function openSqlite(): SqlDatabase {
+  mkdirSync("data", { recursive: true });
+  const sqlite = new DatabaseSync("data/roofline.db");
+  sqlite.exec(SCHEMA);
+  return sqlite as unknown as SqlDatabase;
+}
+
+function openPostgres(): SqlDatabase {
+  execScript("SELECT pg_advisory_lock(2147483001)");
+  try {
+    execScript(postgresSchema(SCHEMA));
+    const loaded = queryRaw(
+      `SELECT (
+         (SELECT COUNT(*) FROM users) +
+         (SELECT COUNT(*) FROM contacts) +
+         (SELECT COUNT(*) FROM jobs)
+       )::int AS n`,
+    ).rows?.[0]?.n;
+    if (Number(loaded) > 0) {
+      execScript(sequenceBumpSql());
+      return { prepare: statement, exec: execScript };
+    }
+    const sqlitePath = "data/roofline.db";
+    if (existsSync(sqlitePath)) {
+      copySqlite(sqlitePath);
+    }
+    const after = queryRaw("SELECT COUNT(*)::int AS n FROM users").rows?.[0]?.n;
+    if (Number(after) === 0) {
+      seed({ prepare: statement, exec: execScript });
+    }
+    execScript(sequenceBumpSql());
+    return { prepare: statement, exec: execScript };
+  } finally {
+    execScript("SELECT pg_advisory_unlock(2147483001)");
+  }
+}
+
+function copySqlite(path: string): void {
+  const source = new DatabaseSync(path, { readOnly: true });
+  const tables = [
+    "users",
+    "contacts",
+    "jobs",
+    "job_events",
+    "measurements",
+    "catalogue",
+    "proposals",
+    "proposal_lines",
+    "templates",
+    "documents",
+    "material_orders",
+    "work_orders",
+    "invoices",
+    "payments",
+    "tasks",
+    "automations",
+  ];
+  execScript("BEGIN");
+  try {
+    for (const table of tables) {
+      const rows = source.prepare(`SELECT * FROM ${table}`).all() as Array<Record<string, unknown>>;
+      for (const row of rows) {
+        const keys = Object.keys(row);
+        queryRaw(
+          translateSql(
+            `INSERT INTO ${table} (${keys.join(",")}) VALUES (${keys.map(() => "?").join(",")})`,
+          ),
+          keys.map((key) => row[key]),
+        );
+      }
+    }
+    execScript("COMMIT");
+  } catch (error) {
+    execScript("ROLLBACK");
+    throw error;
+  }
+}
+
+export function getDb(): SqlDatabase {
+  if (db) return db;
+  db = process.env.DATABASE_URL ? openPostgres() : openSqlite();
+  if (!process.env.DATABASE_URL) seed(db);
   return db;
 }
 
-function seed(d: DatabaseSync) {
+function seed(d: SqlDatabase) {
   const n = d.prepare("SELECT COUNT(*) AS n FROM users").get() as { n: number };
   if (n.n > 0) return;
 
