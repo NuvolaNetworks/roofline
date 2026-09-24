@@ -1,5 +1,5 @@
 import "pg";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Worker } from "node:worker_threads";
@@ -68,7 +68,13 @@ function sslConfig(connectionString: string): false | { rejectUnauthorized: bool
     connectionString.includes("sslmode=") ||
     connectionString.includes("rds.amazonaws.com")
   ) {
-    return { rejectUnauthorized: true };
+    const bundle = ["/app/rds-global-bundle.pem", "rds-global-bundle.pem"].find((path) =>
+      existsSync(path),
+    );
+    return {
+      rejectUnauthorized: true,
+      ca: bundle ? readFileSync(bundle, "utf8") : undefined,
+    };
   }
   return undefined;
 }
