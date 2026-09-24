@@ -58,7 +58,9 @@ async function handle(message) {
 }
 `;
 
-function sslConfig(connectionString: string): false | { rejectUnauthorized: boolean } | undefined {
+function sslConfig(
+  connectionString: string,
+): false | { rejectUnauthorized: boolean; ca?: string } | undefined {
   const mode = (process.env.DATABASE_SSL || "").toLowerCase();
   if (mode === "disable" || mode === "off" || mode === "false") return false;
   if (mode === "no-verify") return { rejectUnauthorized: false };
