@@ -7,9 +7,10 @@ export const dynamic = "force-dynamic";
 export default async function Catalogue() {
   const user = await currentUser();
   if (!user) redirect("/login");
-  const items = getDb()
-    .prepare("SELECT * FROM catalogue ORDER BY source DESC, name")
-    .all() as Array<Record<string, unknown>>;
+  const items = await getDb().all(
+    "SELECT * FROM catalogue WHERE org_id = ? ORDER BY source DESC, name",
+    user.org_id,
+  );
   return (
     <div className="p-6 max-w-3xl">
       <h1 className="mb-1 text-xl font-semibold">Catalogue</h1>

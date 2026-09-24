@@ -30,21 +30,20 @@ export default async function JobsBoard({
   const user = await currentUser();
   if (!user) redirect("/login");
   const { q = "", workflow = "All workflows", view = "board" } = await searchParams;
-  const ids = visibleUserIds(user);
+  const ids = await visibleUserIds(user);
   const ph = ids.map(() => "?").join(",");
 
-  const rows = getDb()
-    .prepare(
-      `SELECT j.id, j.title, j.address, j.trade, j.workflow, j.stage, j.value_cents,
-              j.stage_since, j.updated_at,
-              u.name AS assignee, c.name AS contact,
-              (SELECT status FROM proposals p WHERE p.job_id = j.id ORDER BY p.id DESC LIMIT 1) AS proposal_status,
-              (SELECT status FROM invoices i WHERE i.job_id = j.id ORDER BY i.id DESC LIMIT 1) AS invoice_status
-       FROM jobs j LEFT JOIN users u ON u.id = j.assignee_id
-       LEFT JOIN contacts c ON c.id = j.contact_id
-       WHERE j.assignee_id IN (${ph}) ORDER BY j.updated_at DESC`,
-    )
-    .all(...ids) as unknown as JobRow[];
+  const rows = await getDb().all<JobRow>(
+    `SELECT j.id, j.title, j.address, j.trade, j.workflow, j.stage, j.value_cents,
+            j.stage_since, j.updated_at,
+            u.name AS assignee, c.name AS contact,
+            (SELECT status FROM proposals p WHERE p.job_id = j.id ORDER BY p.id DESC LIMIT 1) AS proposal_status,
+            (SELECT status FROM invoices i WHERE i.job_id = j.id ORDER BY i.id DESC LIMIT 1) AS invoice_status
+     FROM jobs j LEFT JOIN users u ON u.id = j.assignee_id
+     LEFT JOIN contacts c ON c.id = j.contact_id
+     WHERE j.assignee_id IN (${ph}) AND j.org_id = ? ORDER BY j.updated_at DESC`,
+    ...ids, user.org_id,
+  );
 
   const needle = q.trim().toLowerCase();
   const jobs = rows.filter(

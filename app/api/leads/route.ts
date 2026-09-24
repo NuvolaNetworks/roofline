@@ -1,9 +1,9 @@
 import { getDb } from "@/lib/db";
-import { requireIdentity } from "@/lib/api-guard";
+import { requireOrgIdentity } from "@/lib/api-guard";
 
 /** POST /api/leads — capture a new lead and open its job file. */
 export async function POST(req: Request) {
-  const auth = await requireIdentity(req);
+  const auth = await requireOrgIdentity(req);
   if ("error" in auth) return auth.error;
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
   const name = String(body.name ?? "").trim();
@@ -12,31 +12,37 @@ export async function POST(req: Request) {
     return Response.json({ error: "name and address are required" }, { status: 400 });
   }
   const db = getDb();
-  const contact = db
-    .prepare("INSERT INTO contacts (name, type, phone, email, address) VALUES (?,?,?,?,?)")
-    .run(name, "Homeowner", String(body.phone ?? ""), String(body.email ?? ""), address);
-  const trade = String(body.trade ?? "Roofing");
-  const rep = db.prepare("SELECT id FROM users WHERE role = 'rep' ORDER BY id LIMIT 1").get() as
-    | { id: number }
-    | undefined;
-  const job = db
-    .prepare(
-      `INSERT INTO jobs (title, contact_id, address, trade, source, stage, assignee_id)
-       VALUES (?,?,?,?,?, 'Lead', ?)`,
-    )
-    .run(
-      String(body.title || `${trade} — ${name}`),
-      Number(contact.lastInsertRowid),
-      address,
-      trade,
-      String(body.source ?? "AI assistant"),
-      rep?.id ?? 1,
-    );
-  db.prepare("INSERT INTO job_events (job_id, kind, body, actor) VALUES (?,?,?,?)").run(
-    Number(job.lastInsertRowid),
-    "system",
-    "Lead created",
-    auth.identity.email,
+  const contact = await db.run(
+    "INSERT INTO contacts (org_id, name, type, phone, email, address) VALUES (?,?,?,?,?,?)",
+    auth.orgId, name, "Homeowner", String(body.phone ?? ""), String(body.email ?? ""), address,
   );
-  return Response.json({ job_id: Number(job.lastInsertRowid), stage: "Lead", title: String(body.title || `${trade} — ${name}`) });
+  const trade = String(body.trade ?? "Roofing");
+  const rep = await db.get<{ id: number }>(
+    "SELECT id FROM users WHERE role = 'rep' AND org_id = ? ORDER BY id LIMIT 1",
+    auth.orgId,
+  );
+  const fallback = rep ?? (await db.get<{ id: number }>(
+    "SELECT id FROM users WHERE org_id = ? ORDER BY id LIMIT 1",
+    auth.orgId,
+  ));
+  const job = await db.run(
+    `INSERT INTO jobs (org_id, title, contact_id, address, trade, source, stage, assignee_id)
+     VALUES (?,?,?,?,?,?, 'Lead', ?)`,
+    auth.orgId,
+    String(body.title || `${trade} — ${name}`),
+    contact.lastId,
+    address,
+    trade,
+    String(body.source ?? "AI assistant"),
+    fallback?.id ?? null,
+  );
+  await db.run(
+    "INSERT INTO job_events (org_id, job_id, kind, body, actor) VALUES (?,?,?,?,?)",
+    auth.orgId, job.lastId, "system", "Lead created", auth.identity.email,
+  );
+  return Response.json({
+    job_id: job.lastId,
+    stage: "Lead",
+    title: String(body.title || `${trade} — ${name}`),
+  });
 }

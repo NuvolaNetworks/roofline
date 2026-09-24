@@ -7,12 +7,13 @@ import { tone } from "@/lib/fmt";
 export const dynamic = "force-dynamic";
 
 export default async function Measurements() {
-  if (!(await currentUser())) redirect("/login");
-  const rows = getDb()
-    .prepare(
-      `SELECT m.*, j.title AS job, j.address FROM measurements m JOIN jobs j ON j.id = m.job_id ORDER BY m.id DESC`,
-    )
-    .all() as Array<Record<string, unknown>>;
+  const user = await currentUser();
+  if (!user) redirect("/login");
+  const rows = await getDb().all(
+    `SELECT m.*, j.title AS job, j.address FROM measurements m JOIN jobs j ON j.id = m.job_id
+     WHERE m.org_id = ? ORDER BY m.id DESC`,
+    user.org_id,
+  );
   return (
     <div className="max-w-5xl p-6">
       <h1 className="mb-1 text-xl font-semibold">Measurements</h1>

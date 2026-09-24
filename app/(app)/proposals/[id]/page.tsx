@@ -8,20 +8,21 @@ import { usd, usd2, tone } from "@/lib/fmt";
 export const dynamic = "force-dynamic";
 
 export default async function Proposal({ params }: { params: Promise<{ id: string }> }) {
-  if (!(await currentUser())) redirect("/login");
+  const user = await currentUser();
+  if (!user) redirect("/login");
   const { id } = await params;
   const db = getDb();
-  const p = db
-    .prepare(
-      `SELECT p.*, j.title AS job, j.address, c.name AS contact
-       FROM proposals p JOIN jobs j ON j.id = p.job_id
-       LEFT JOIN contacts c ON c.id = j.contact_id WHERE p.id = ?`,
-    )
-    .get(Number(id)) as Record<string, unknown> | undefined;
+  const p = await db.get(
+    `SELECT p.*, j.title AS job, j.address, c.name AS contact
+     FROM proposals p JOIN jobs j ON j.id = p.job_id
+     LEFT JOIN contacts c ON c.id = j.contact_id WHERE p.id = ? AND p.org_id = ?`,
+    Number(id), user.org_id,
+  );
   if (!p) notFound();
-  const lines = db.prepare("SELECT * FROM proposal_lines WHERE proposal_id = ? ORDER BY id").all(Number(id)) as Array<
-    Record<string, unknown>
-  >;
+  const lines = await db.all(
+    "SELECT * FROM proposal_lines WHERE proposal_id = ? AND org_id = ? ORDER BY id",
+    Number(id), user.org_id,
+  );
   const total = lines.reduce((s, l) => s + Number(l.qty) * Number(l.unit_price_cents), 0);
   const cost = lines.reduce((s, l) => s + Number(l.qty) * Number(l.unit_cost_cents), 0);
   const status = String(p.status);

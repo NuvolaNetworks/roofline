@@ -6,8 +6,12 @@ import { toggleAutomation } from "@/lib/actions";
 export const dynamic = "force-dynamic";
 
 export default async function Automations() {
-  if (!(await currentUser())) redirect("/login");
-  const rows = getDb().prepare("SELECT * FROM automations ORDER BY id").all() as Array<Record<string, unknown>>;
+  const user = await currentUser();
+  if (!user) redirect("/login");
+  const rows = await getDb().all(
+    "SELECT * FROM automations WHERE org_id = ? ORDER BY id",
+    user.org_id,
+  );
   return (
     <div className="max-w-3xl p-6">
       <h1 className="mb-1 text-xl font-semibold">Automations</h1>

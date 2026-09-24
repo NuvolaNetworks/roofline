@@ -8,14 +8,17 @@ import { usd, tone } from "@/lib/fmt";
 export const dynamic = "force-dynamic";
 
 export default async function Orders() {
-  if (!(await currentUser())) redirect("/login");
+  const user = await currentUser();
+  if (!user) redirect("/login");
   const db = getDb();
-  const materials = db
-    .prepare("SELECT m.*, j.title AS job FROM material_orders m JOIN jobs j ON j.id = m.job_id ORDER BY m.id DESC")
-    .all() as Array<Record<string, unknown>>;
-  const works = db
-    .prepare("SELECT w.*, j.title AS job FROM work_orders w JOIN jobs j ON j.id = w.job_id ORDER BY w.id DESC")
-    .all() as Array<Record<string, unknown>>;
+  const materials = await db.all(
+    "SELECT m.*, j.title AS job FROM material_orders m JOIN jobs j ON j.id = m.job_id WHERE m.org_id = ? ORDER BY m.id DESC",
+    user.org_id,
+  );
+  const works = await db.all(
+    "SELECT w.*, j.title AS job FROM work_orders w JOIN jobs j ON j.id = w.job_id WHERE w.org_id = ? ORDER BY w.id DESC",
+    user.org_id,
+  );
   return (
     <div className="max-w-4xl p-6">
       <h1 className="mb-1 text-xl font-semibold">Material &amp; Work Orders</h1>

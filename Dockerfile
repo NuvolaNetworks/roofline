@@ -12,7 +12,12 @@ WORKDIR /app
 ENV NODE_ENV=production PORT=3000 HOSTNAME=0.0.0.0
 COPY --from=build /app/.next/standalone ./
 COPY --from=build /app/.next/static ./.next/static
-RUN mkdir -p data \
- && wget -q -O /app/rds-global-bundle.pem https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
+# Migrations are read from disk at boot (migrate-on-boot runner); the
+# standalone trace doesn't know about them.
+COPY --from=build /app/migrations ./migrations
+# AWS RDS global CA bundle — read at pool construction to verify the server
+# cert (DATABASE_SSL=verify / production default). Public certs, no secrets.
+COPY --from=build /app/certs ./certs
+RUN mkdir -p data
 EXPOSE 3000
 CMD ["node", "server.js"]

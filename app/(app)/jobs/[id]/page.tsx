@@ -23,30 +23,31 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
   const jobId = Number(id);
   const db = getDb();
 
-  const job = db
-    .prepare(
-      `SELECT j.*, u.name AS assignee, c.name AS contact, c.phone, c.email AS contact_email
-       FROM jobs j LEFT JOIN users u ON u.id = j.assignee_id
-       LEFT JOIN contacts c ON c.id = j.contact_id WHERE j.id = ?`,
-    )
-    .get(jobId) as Record<string, unknown> | undefined;
-  if (!job) notFound();
-  if (!visibleUserIds(user).includes(Number(job.assignee_id))) notFound();
-
-  const rows = <T,>(sql: string) => db.prepare(sql).all(jobId) as T[];
-  const events = rows<Record<string, unknown>>("SELECT * FROM job_events WHERE job_id = ? ORDER BY id DESC");
-  const measurements = rows<Record<string, unknown>>("SELECT * FROM measurements WHERE job_id = ? ORDER BY id DESC");
-  const proposals = rows<Record<string, unknown>>("SELECT * FROM proposals WHERE job_id = ? ORDER BY id DESC");
-  const documents = rows<Record<string, unknown>>(
-    "SELECT d.*, t.name AS template FROM documents d LEFT JOIN templates t ON t.id = d.template_id WHERE d.job_id = ? ORDER BY d.id DESC",
+  const job = await db.get(
+    `SELECT j.*, u.name AS assignee, c.name AS contact, c.phone, c.email AS contact_email
+     FROM jobs j LEFT JOIN users u ON u.id = j.assignee_id
+     LEFT JOIN contacts c ON c.id = j.contact_id WHERE j.id = ? AND j.org_id = ?`,
+    jobId, user.org_id,
   );
-  const materials = rows<Record<string, unknown>>("SELECT * FROM material_orders WHERE job_id = ? ORDER BY id DESC");
-  const works = rows<Record<string, unknown>>("SELECT * FROM work_orders WHERE job_id = ? ORDER BY id DESC");
-  const invoices = rows<Record<string, unknown>>("SELECT * FROM invoices WHERE job_id = ? ORDER BY id DESC");
-  const templates = db.prepare("SELECT id, name FROM templates WHERE kind != 'proposal'").all() as Array<{
-    id: number;
-    name: string;
-  }>;
+  if (!job) notFound();
+  if (!(await visibleUserIds(user)).includes(Number(job.assignee_id))) notFound();
+
+  // Belt and braces: child rows are reached via the org-checked job, and
+  // still filtered by org_id like every other query.
+  const rows = <T = Record<string, unknown>,>(sql: string) => db.all<T>(sql, jobId, user.org_id);
+  const events = await rows("SELECT * FROM job_events WHERE job_id = ? AND org_id = ? ORDER BY id DESC");
+  const measurements = await rows("SELECT * FROM measurements WHERE job_id = ? AND org_id = ? ORDER BY id DESC");
+  const proposals = await rows("SELECT * FROM proposals WHERE job_id = ? AND org_id = ? ORDER BY id DESC");
+  const documents = await rows(
+    "SELECT d.*, t.name AS template FROM documents d LEFT JOIN templates t ON t.id = d.template_id WHERE d.job_id = ? AND d.org_id = ? ORDER BY d.id DESC",
+  );
+  const materials = await rows("SELECT * FROM material_orders WHERE job_id = ? AND org_id = ? ORDER BY id DESC");
+  const works = await rows("SELECT * FROM work_orders WHERE job_id = ? AND org_id = ? ORDER BY id DESC");
+  const invoices = await rows("SELECT * FROM invoices WHERE job_id = ? AND org_id = ? ORDER BY id DESC");
+  const templates = await db.all<{ id: number; name: string }>(
+    "SELECT id, name FROM templates WHERE org_id = ? AND kind != 'proposal'",
+    user.org_id,
+  );
 
   const stage = String(job.stage);
   const stageIdx = STAGES.indexOf(stage as (typeof STAGES)[number]);

@@ -19,23 +19,29 @@
 const JWKS_URL =
   process.env.AMOS_APP_AUTH_JWKS_URL ||
   "https://app.amoslabs.com/.well-known/amos-app-auth/jwks.json";
-// The platform does not inject AMOS_APP_AUTH_APP_ID into task definitions yet
-// (recorded follow-up), so default to this app's deployment id — the `aud`
-// the platform mints for Roofline. Override with the env var when it lands.
-export const APP_ID =
-  process.env.AMOS_APP_AUTH_APP_ID || "082c7568-54f5-41d5-be39-4e4a99afc700";
-export const PLATFORM_URL = (
-  process.env.AMOS_PLATFORM_URL || "https://app.amoslabs.com"
-).replace(/\/$/, "");
-export const PUBLIC_URL = (
-  process.env.ROOFLINE_PUBLIC_URL || "https://roofline.custom.amoslabs.com"
-).replace(/\/$/, "");
+const APP_ID = process.env.AMOS_APP_AUTH_APP_ID || "";
+const PLATFORM_BASE = new URL(JWKS_URL).origin;
 
-/** Where the platform sends people to sign in to Roofline, returning to our callback. */
-export function amosLoginUrl(): string {
-  const redirect = encodeURIComponent(`${PUBLIC_URL}/auth/amos`);
-  return `${PLATFORM_URL}/app-auth/${APP_ID}/login?redirect_uri=${redirect}`;
+/**
+ * Platform IdP login URL. The route is `/app-auth/{app_id}/login`, not
+ * `/app-auth/login?app_id=…` — the latter 404s on the platform with
+ * `route_not_found`. `redirect_uri` must be HTTPS on a host the app has
+ * registered; after login the IdP returns the identity JWT in the URL
+ * fragment (`#amos_token=`).
+ */
+export function platformIdpLoginUrl(redirectUri: string): string {
+  if (process.env.AMOS_APP_AUTH_LOGIN_URL) return process.env.AMOS_APP_AUTH_LOGIN_URL;
+  if (!APP_ID) return `${PLATFORM_BASE}/app-auth/login`;
+  const url = new URL(`${PLATFORM_BASE}/app-auth/${APP_ID}/login`);
+  url.searchParams.set("redirect_uri", redirectUri);
+  return url.toString();
 }
+// Expected token issuer. Prefer an explicit config; otherwise derive it from
+// the JWKS origin (the IdP signs and publishes keys at the same origin). Since
+// JWKS_URL always has a value, this is never empty — an unset issuer would be
+// a misconfiguration, and the strict compare below fails closed regardless.
+const EXPECTED_ISS =
+  process.env.AMOS_APP_AUTH_ISS || new URL(JWKS_URL).origin;
 const JWKS_TTL_MS = 5 * 60 * 1000;
 
 export interface AmosIdentity {
@@ -43,6 +49,9 @@ export interface AmosIdentity {
   org_id: string;
   email: string;
   role: string;
+  /** Optional display claims — used at org/user provisioning when present. */
+  name?: string;
+  org_name?: string;
   plan_key: string;
   entitlements: string[];
   subscription_status: string;
@@ -58,6 +67,22 @@ interface Jwk {
   crv: string;
   x: string;
   alg?: string;
+}
+
+/**
+ * Choose where the identity token comes from, strongly preferring the
+ * `x-amos-identity` header. A token in the ?token= query string leaks into
+ * server logs, browser history and the Referer header and is replayable until
+ * exp, so it is only a fallback — and when it is used (fromQuery), the caller
+ * MUST redirect to a token-less URL immediately (see app/auth/amos/route.ts).
+ */
+export function pickIdentityToken(
+  headerToken: string | null,
+  queryToken: string | null,
+): { token: string | null; fromQuery: boolean } {
+  if (headerToken) return { token: headerToken, fromQuery: false };
+  if (queryToken) return { token: queryToken, fromQuery: true };
+  return { token: null, fromQuery: false };
 }
 
 let cache: { at: number; keys: Jwk[] } | null = null;
@@ -142,6 +167,9 @@ export async function verifyAmosIdentity(
   // treated as misconfiguration and fails closed rather than accepting any
   // audience.
   if (!APP_ID || claims.aud !== APP_ID) return null;
+  // iss must be the expected issuer — a valid signature from the right keys is
+  // not enough if the token was minted for a different issuer/environment.
+  if (!claims.iss || claims.iss !== EXPECTED_ISS) return null;
   if (!claims.org_id) return null;
   return claims;
 }

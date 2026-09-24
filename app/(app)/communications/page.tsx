@@ -20,16 +20,15 @@ export default async function Communications({
   const user = await currentUser();
   if (!user) redirect("/login");
   const { dir = "all" } = await searchParams;
-  const ids = visibleUserIds(user);
+  const ids = await visibleUserIds(user);
   const ph = ids.map(() => "?").join(",");
-  const rows = getDb()
-    .prepare(
-      `SELECT e.*, j.title AS job, c.name AS contact FROM job_events e
-       JOIN jobs j ON j.id = e.job_id LEFT JOIN contacts c ON c.id = j.contact_id
-       WHERE j.assignee_id IN (${ph}) AND e.kind IN ('email','sms','note')
-       ORDER BY e.id DESC LIMIT 100`,
-    )
-    .all(...ids) as Array<Record<string, unknown>>;
+  const rows = await getDb().all(
+    `SELECT e.*, j.title AS job, c.name AS contact FROM job_events e
+     JOIN jobs j ON j.id = e.job_id LEFT JOIN contacts c ON c.id = j.contact_id
+     WHERE j.assignee_id IN (${ph}) AND e.org_id = ? AND e.kind IN ('email','sms','note')
+     ORDER BY e.id DESC LIMIT 100`,
+    ...ids, user.org_id,
+  );
   const shown = dir === "all" ? rows : rows.filter((r) => String(r.direction) === dir);
 
   return (
