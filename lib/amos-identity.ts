@@ -19,7 +19,23 @@
 const JWKS_URL =
   process.env.AMOS_APP_AUTH_JWKS_URL ||
   "https://app.amoslabs.com/.well-known/amos-app-auth/jwks.json";
-const APP_ID = process.env.AMOS_APP_AUTH_APP_ID || "";
+// The platform does not inject AMOS_APP_AUTH_APP_ID into task definitions yet
+// (recorded follow-up), so default to this app's deployment id — the `aud`
+// the platform mints for Roofline. Override with the env var when it lands.
+export const APP_ID =
+  process.env.AMOS_APP_AUTH_APP_ID || "082c7568-54f5-41d5-be39-4e4a99afc700";
+export const PLATFORM_URL = (
+  process.env.AMOS_PLATFORM_URL || "https://app.amoslabs.com"
+).replace(/\/$/, "");
+export const PUBLIC_URL = (
+  process.env.ROOFLINE_PUBLIC_URL || "https://roofline.custom.amoslabs.com"
+).replace(/\/$/, "");
+
+/** Where the platform sends people to sign in to Roofline, returning to our callback. */
+export function amosLoginUrl(): string {
+  const redirect = encodeURIComponent(`${PUBLIC_URL}/auth/amos`);
+  return `${PLATFORM_URL}/app-auth/${APP_ID}/login?redirect_uri=${redirect}`;
+}
 const JWKS_TTL_MS = 5 * 60 * 1000;
 
 export interface AmosIdentity {

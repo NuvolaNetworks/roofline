@@ -1,4 +1,5 @@
 import { loginAction } from "@/lib/actions";
+import { amosLoginUrl } from "@/lib/amos-identity";
 
 export default async function LoginPage({
   searchParams,
@@ -23,7 +24,16 @@ export default async function LoginPage({
             Wrong email or password.
           </p>
         ) : null}
-        <form action={loginAction} className="space-y-3">
+        <a
+          href={amosLoginUrl()}
+          className="block w-full rounded-lg bg-[var(--accent)] py-2 text-center text-sm font-medium text-white hover:bg-[var(--accent-light)]"
+        >
+          Sign in with AMOS
+        </a>
+        <p className="my-4 text-center text-xs text-[var(--muted)]">Your company account, one password, managed by AMOS.</p>
+        <details className="text-xs text-[var(--muted)]">
+          <summary className="cursor-pointer">Demo sign-in</summary>
+        <form action={loginAction} className="mt-3 space-y-3">
           <input
             name="email"
             type="email"
@@ -38,10 +48,11 @@ export default async function LoginPage({
             placeholder="Password"
             className="w-full rounded-lg border border-[var(--card-border)] px-3 py-2 text-sm"
           />
-          <button className="w-full rounded-lg bg-[var(--accent)] py-2 text-sm font-medium text-white hover:bg-[var(--accent-light)]">
-            Sign in
+          <button className="w-full rounded-lg border border-[var(--card-border)] py-2 text-sm font-medium hover:bg-[var(--card-border)]">
+            Sign in to the demo
           </button>
         </form>
+        </details>
         <p className="mt-6 text-xs text-[var(--muted)]">
           Demo accounts (password <code>demo2026</code>): jeff@demo.roofline
           (admin) · dana@demo.roofline (manager) · marcus@demo.roofline (rep)

@@ -2,7 +2,7 @@
 // Demo-grade on purpose; phase 2 replaces login with AMOS app end-user auth
 // (the platform's B2 surface) while everything below `currentUser()` keeps
 // working unchanged.
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
 import { getDb } from "./db";
 
@@ -19,6 +19,51 @@ export interface User {
 
 function sign(value: string): string {
   return createHmac("sha256", SECRET).update(value).digest("hex");
+}
+
+async function establishSession(userId: number): Promise<void> {
+  const payload = String(userId);
+  (await cookies()).set(COOKIE, `${payload}.${sign(payload)}`, {
+    httpOnly: true,
+    sameSite: "lax",
+    path: "/",
+    maxAge: 60 * 60 * 12,
+  });
+}
+
+/**
+ * Sign in from a platform-verified identity (AMOS app end-user auth). The
+ * platform owns the password; Roofline only maps the verified email onto a
+ * local user row so everything below `currentUser()` keeps working. A first
+ * sign-in creates the row: org owners and admins become Roofline admins,
+ * members become reps. The local password column is never used for these
+ * accounts (an unguessable placeholder satisfies NOT NULL).
+ */
+export async function loginWithAmosIdentity(identity: {
+  email: string;
+  role: string;
+  sub: string;
+}): Promise<User | null> {
+  const email = identity.email.trim().toLowerCase();
+  if (!email) return null;
+  const db = getDb();
+  let row = db
+    .prepare("SELECT id, email, name, role, manager_id FROM users WHERE lower(email) = ?")
+    .get(email) as User | undefined;
+  if (!row) {
+    const role = identity.role === "owner" || identity.role === "admin" ? "admin" : "rep";
+    const name = email.split("@")[0].replace(/[._-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+    const placeholder = `amos:${identity.sub}:${randomBytes(16).toString("hex")}`;
+    const result = db
+      .prepare("INSERT INTO users (email, name, role, manager_id, password) VALUES (?, ?, ?, NULL, ?)")
+      .run(email, name || email, role, placeholder);
+    row = db
+      .prepare("SELECT id, email, name, role, manager_id FROM users WHERE id = ?")
+      .get(Number(result.lastInsertRowid)) as User | undefined;
+  }
+  if (!row) return null;
+  await establishSession(row.id);
+  return row;
 }
 
 export async function login(email: string, password: string): Promise<boolean> {
