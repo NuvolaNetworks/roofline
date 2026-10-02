@@ -10,4 +10,7 @@ export async function register(): Promise<void> {
   const { getDb } = await import("./lib/db");
   await getDb().get("SELECT 1 AS ok");
   console.log("[roofline] database migrations applied");
+  // Deliver queued events and emails to AMOS (lib/amos-outbox.ts).
+  const { startAmosWorker } = await import("./lib/amos-worker");
+  startAmosWorker();
 }

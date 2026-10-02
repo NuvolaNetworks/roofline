@@ -257,6 +257,24 @@ const ESIGN_TABLES = `
     signature_method TEXT, typed_name TEXT, consent_text TEXT,
     ip TEXT, user_agent TEXT, decline_reason TEXT
   );
+  CREATE TABLE IF NOT EXISTS amos_outbox (
+    id INTEGER PRIMARY KEY,
+    org_id TEXT NOT NULL REFERENCES orgs(id),
+    kind TEXT NOT NULL, topic TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL UNIQUE,
+    payload TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at TEXT NOT NULL DEFAULT (datetime('now')),
+    claimed_at TEXT, last_error TEXT, response TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    delivered_at TEXT
+  );
+  CREATE TABLE IF NOT EXISTS app_service_key (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    kid TEXT NOT NULL, public_key TEXT NOT NULL, private_key_enc TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
   CREATE TABLE IF NOT EXISTS envelope_events (
     id INTEGER PRIMARY KEY,
     org_id TEXT NOT NULL REFERENCES orgs(id),

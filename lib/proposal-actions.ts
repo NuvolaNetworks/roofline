@@ -10,8 +10,12 @@ import { currentUser, type User } from "./auth";
 import { clientInfo } from "./client-info";
 import { loadProposalModel, getProposal } from "./proposal-data";
 import { applyProposalSigned, logJobEvent, recalcProposal } from "./proposal-effects";
+import { requestOrigin } from "./request-origin";
+import { notifyCompleted, notifySent, notifyVoided } from "./esign-notify";
+import { kickAmosOutbox } from "./amos-worker";
 import {
   ACTIVE,
+  issueDownloadLink,
   countersign,
   createEnvelope,
   decodeSignaturePng,
@@ -171,12 +175,15 @@ export async function sendForSignature(proposalId: number) {
   if (!loaded) redirect("/proposals");
   if (!loaded.lines.length) err(proposalId, "Add at least one line item before sending.");
   let token = "";
+  let envelopeId = 0;
   try {
-    ({ token } = await createEnvelope(db, user.org_id, proposalId, p.job_id, loaded.model, user, loaded.rep));
+    ({ token, envelopeId } = await createEnvelope(db, user.org_id, proposalId, p.job_id, loaded.model, user, loaded.rep));
   } catch (e) {
     if (!(e instanceof SignError)) throw e;
     err(proposalId, e.message);
   }
+  await notifySent(db, user.org_id, envelopeId, token, await requestOrigin());
+  kickAmosOutbox();
   refresh(proposalId, p.job_id);
   // The raw link is shown once, to the sender; only its hash is stored.
   redirect(page(proposalId, `link=${encodeURIComponent(token)}`));
@@ -198,6 +205,8 @@ export async function reissueLink(proposalId: number) {
     if (!(e instanceof SignError)) throw e;
     err(proposalId, e.message);
   }
+  await notifySent(getDb(), user.org_id, Number(env.id), token, await requestOrigin(), true);
+  kickAmosOutbox();
   redirect(page(proposalId, `link=${encodeURIComponent(token)}`));
 }
 
@@ -205,6 +214,8 @@ export async function voidSignature(proposalId: number, formData: FormData) {
   const user = await requireUser();
   const env = await activeEnvelope(user, proposalId);
   await voidEnvelope(getDb(), user.org_id, Number(env.id), user, text(formData.get("reason"), 300));
+  await notifyVoided(getDb(), user.org_id, Number(env.id), await requestOrigin());
+  kickAmosOutbox();
   refresh(proposalId, env.job_id);
   redirect(page(proposalId));
 }
@@ -213,9 +224,10 @@ export async function countersignAction(proposalId: number, formData: FormData) 
   const user = await requireUser();
   const env = await activeEnvelope(user, proposalId);
   let message = "";
+  let completed = false;
   try {
     const png = await decodeSignaturePng(String(formData.get("signature") ?? ""));
-    await countersign(getDb(), user.org_id, Number(env.id), user.id, {
+    completed = await countersign(getDb(), user.org_id, Number(env.id), user.id, {
       png,
       method: formData.get("method") === "drawn" ? "drawn" : "typed",
       typedName: String(formData.get("typed_name") ?? ""),
@@ -224,6 +236,11 @@ export async function countersignAction(proposalId: number, formData: FormData) 
   } catch (e) {
     if (!(e instanceof SignError)) throw e;
     message = e.message;
+  }
+  if (completed) {
+    const db = getDb();
+    await notifyCompleted(db, user.org_id, Number(env.id), await issueDownloadLink(db, user.org_id, Number(env.id)), await requestOrigin());
+    kickAmosOutbox();
   }
   refresh(proposalId, env.job_id);
   if (message) err(proposalId, message);

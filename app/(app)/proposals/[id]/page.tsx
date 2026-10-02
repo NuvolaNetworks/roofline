@@ -5,6 +5,7 @@ import { getDb } from "@/lib/db";
 import { currentUser } from "@/lib/auth";
 import { loadProposalModel } from "@/lib/proposal-data";
 import { ACTIVE, CONSENT_TEXT, getSigners, latestEnvelope } from "@/lib/esign";
+import { emailStatus } from "@/lib/esign-notify";
 import { getFile } from "@/lib/files";
 import { dataUrl } from "@/lib/http-files";
 import {
@@ -61,6 +62,16 @@ export default async function Proposal({
   const contractor = signers.find((s) => s.role === "contractor");
   const iCountersign = active && contractor && Number(contractor.user_id) === user.id && contractor.status !== "Signed";
   const customerPending = signers.some((s) => s.role === "customer" && s.status !== "Signed");
+  const emails = env ? await emailStatus(db, user.org_id, Number(env.id)) : [];
+  const EMAIL_LABEL: Record<string, string> = {
+    "proposal.signature_request": "Signing link",
+    "proposal.countersign_request": "Countersign reminder",
+    "proposal.signed_copy": "Signed copy to customer",
+    "proposal.completed": "Signed notice to rep",
+    "proposal.declined": "Declined notice to rep",
+  };
+  const emailState = (s: string, attempts: number) =>
+    s === "delivered" ? "Sent" : s === "dead" ? "Failed" : attempts > 0 ? "Retrying" : "Sending";
 
   const templates = await db.all<{ id: number; name: string }>(
     "SELECT id, name FROM templates WHERE org_id = ? AND kind = 'proposal' ORDER BY id",
@@ -138,6 +149,9 @@ export default async function Proposal({
               {mailto ? <a href={mailto} className={btn}>Email it{customerEmail ? ` to ${customerEmail}` : ""}</a> : null}
             </div>
             <p className="mt-2 text-xs text-[var(--muted)]">
+              {customerEmail
+                ? `Roofline is emailing this link to ${customerEmail} from ${model.branding.company_name || "your company"} — status below. `
+                : "No customer email on file, so send this link yourself. "}
               Shown once — Roofline keeps only a fingerprint of it. Lost it? Issue a new link (the old one stops working).
             </p>
           </div>
@@ -155,6 +169,22 @@ export default async function Proposal({
                   <span className={`mr-2 rounded-full px-2 py-0.5 ${tone(s.status)}`}>{s.status}</span>
                   {s.signed_at ? `signed ${s.signed_at} UTC` : s.viewed_at ? `viewed ${s.viewed_at} UTC` : ""}
                   {s.decline_reason ? ` — “${s.decline_reason}”` : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+
+        {frozen && emails.length ? (
+          <ul className="mb-3 space-y-1 text-xs">
+            {emails.map((e, i) => (
+              <li key={i} className="flex flex-wrap items-center justify-between gap-2">
+                <span>{EMAIL_LABEL[e.topic] ?? e.topic} email</span>
+                <span className="text-[var(--muted)]">
+                  <span className={`mr-2 rounded-full px-2 py-0.5 ${tone(emailState(e.status, Number(e.attempts)) === "Sent" ? "Signed" : emailState(e.status, Number(e.attempts)) === "Failed" ? "Declined" : "Sent")}`}>
+                    {emailState(e.status, Number(e.attempts))}
+                  </span>
+                  {e.delivered_at ? `${e.delivered_at} UTC` : e.last_error ? e.last_error.slice(0, 80) : ""}
                 </span>
               </li>
             ))}

@@ -13,10 +13,10 @@ export default async function Catalogue({ searchParams }: { searchParams: Promis
   if (!user) redirect("/login");
   const { error } = await searchParams;
   const items = await getDb().all<{
-    id: number; sku: string; name: string; unit: string; price_cents: number; source: string;
+    id: number; sku: string; name: string; unit: string; price_cents: number; cost_cents: number; source: string;
     section: string; spec_file_id: number | null; spec_name: string | null;
   }>(
-    `SELECT c.id, c.sku, c.name, c.unit, c.price_cents, c.source, c.section, c.spec_file_id, f.filename AS spec_name
+    `SELECT c.id, c.sku, c.name, c.unit, c.price_cents, c.cost_cents, c.source, c.section, c.spec_file_id, f.filename AS spec_name
      FROM catalogue c LEFT JOIN files f ON f.id = c.spec_file_id AND f.org_id = c.org_id
      WHERE c.org_id = ? ORDER BY c.source DESC, c.name`,
     user.org_id,
@@ -36,8 +36,7 @@ export default async function Catalogue({ searchParams }: { searchParams: Promis
           <thead>
             <tr className="border-b border-[var(--card-border)] text-left text-[var(--muted)]">
               <th className="px-4 py-3 font-medium">Item</th>
-              <th className="px-4 py-3 font-medium">Unit</th>
-              <th className="px-4 py-3 text-right font-medium">Price</th>
+              <th className="px-4 py-3 font-medium">Unit · price · cost</th>
               <th className="px-4 py-3 font-medium">Proposal section · spec sheet</th>
             </tr>
           </thead>
@@ -50,10 +49,21 @@ export default async function Catalogue({ searchParams }: { searchParams: Promis
                     {i.sku} · {i.source === "srs_roofhub" ? "SRS Roof Hub" : "custom"}
                   </div>
                 </td>
-                <td className="px-4 py-3 text-[var(--muted)]">{i.unit}</td>
-                <td className="px-4 py-3 text-right tabular-nums">${(Number(i.price_cents) / 100).toFixed(2)}</td>
+                <td className="px-4 py-3 tabular-nums">
+                  {canEdit && i.source !== "srs_roofhub" ? (
+                    <div className="flex gap-1">
+                      <input form={`cat-${i.id}`} name="unit" defaultValue={i.unit} className={`${input} w-20`} aria-label="Unit" />
+                      <input form={`cat-${i.id}`} name="price" defaultValue={(Number(i.price_cents) / 100).toFixed(2)} className={`${input} w-24 text-right`} aria-label="Price" />
+                      <input form={`cat-${i.id}`} name="cost" defaultValue={(Number(i.cost_cents) / 100).toFixed(2)} className={`${input} w-24 text-right`} aria-label="Cost" />
+                    </div>
+                  ) : (
+                    <span>
+                      <span className="text-[var(--muted)]">{i.unit}</span> · ${(Number(i.price_cents) / 100).toFixed(2)}
+                    </span>
+                  )}
+                </td>
                 <td className="px-4 py-3">
-                  <form action={updateCatalogueItem.bind(null, Number(i.id))} className="flex flex-wrap items-center gap-2">
+                  <form id={`cat-${i.id}`} action={updateCatalogueItem.bind(null, Number(i.id))} className="flex flex-wrap items-center gap-2">
                     <input name="section" defaultValue={i.section} placeholder="e.g. Roofing Accessories" className={`${input} w-48`} disabled={!canEdit} />
                     {i.spec_file_id ? (
                       <>

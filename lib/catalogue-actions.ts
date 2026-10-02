@@ -43,6 +43,15 @@ export async function updateCatalogueItem(id: number, formData: FormData) {
   const user = await requireEditor();
   const db = getDb();
   await db.run("UPDATE catalogue SET section = ? WHERE id = ? AND org_id = ?", text(formData.get("section"), 120), id, user.org_id);
+  // Price/cost/unit are only editable on custom items — SRS Roof Hub items
+  // carry supplier pricing through the AMOS connection.
+  const item = await db.get<{ source: string }>("SELECT source FROM catalogue WHERE id = ? AND org_id = ?", id, user.org_id);
+  if (item && item.source !== "srs_roofhub" && formData.has("price")) {
+    await db.run(
+      "UPDATE catalogue SET price_cents = ?, cost_cents = ?, unit = ? WHERE id = ? AND org_id = ?",
+      cents(formData.get("price")), cents(formData.get("cost")), text(formData.get("unit"), 30) || "each", id, user.org_id,
+    );
+  }
   const spec = await formFile(formData, "spec");
   if (spec) {
     try {

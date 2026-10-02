@@ -5,6 +5,9 @@ import { getFile } from "@/lib/files";
 import { dataUrl } from "@/lib/http-files";
 import { declineSignature, submitSignature } from "@/lib/sign-actions";
 import { clientInfo } from "@/lib/client-info";
+import { requestOrigin } from "@/lib/request-origin";
+import { notifyViewed } from "@/lib/esign-notify";
+import { kickAmosOutbox } from "@/lib/amos-worker";
 import ProposalDocument, { type SignatureView } from "@/components/ProposalDocument";
 import SignaturePad from "@/components/SignaturePad";
 import { money } from "@/lib/proposal-model";
@@ -51,7 +54,10 @@ export default async function SignPage({
     );
   }
 
-  await recordView(db, session, await clientInfo());
+  if (await recordView(db, session, await clientInfo())) {
+    await notifyViewed(db, session.orgId, Number(session.envelope.id), await requestOrigin());
+    kickAmosOutbox();
+  }
   const { model, envelope, signer, signers } = session;
   const accent = model.branding.accent;
   const enc = encodeURIComponent(token);

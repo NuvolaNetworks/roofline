@@ -278,19 +278,34 @@ function nowText(): string {
   return new Date().toISOString().slice(0, 19).replace("T", " ");
 }
 
-export async function recordView(db: Db, s: SigningSession, client: Client): Promise<void> {
-  if (s.envelope.status !== ACTIVE) return;
+/** Returns true on the signer's FIRST view (the one that is an event). */
+export async function recordView(db: Db, s: SigningSession, client: Client): Promise<boolean> {
+  if (s.envelope.status !== ACTIVE) return false;
   const r = await db.run(
     "UPDATE envelope_signers SET status = 'Viewed', viewed_at = datetime('now') WHERE id = ? AND org_id = ? AND status = 'Pending'",
     s.signer.id, s.orgId,
   );
-  if (r.changes === 0) return; // only the first view is an event
+  if (r.changes === 0) return false; // only the first view is an event
   await event(db, s.orgId, s.envelope.id, s.signer.id, "viewed", `${s.signer.name} opened the document`, client);
   const p = await db.run(
     "UPDATE proposals SET status = 'Viewed', viewed_at = datetime('now') WHERE id = ? AND org_id = ? AND status = 'Sent'",
     s.envelope.proposal_id, s.orgId,
   );
   if (p.changes) await logJobEvent(db, s.orgId, s.envelope.job_id, "email", `Proposal viewed by ${s.signer.name}`, s.signer.name, "inbound");
+  return true;
+}
+
+/** A fresh customer link to a COMPLETED envelope, for the "your signed copy"
+ *  email (completed envelopes stay readable by link; the old link dies). */
+export async function issueDownloadLink(db: Db, orgId: string, envelopeId: number): Promise<string | null> {
+  const { token, hash } = newToken();
+  const r = await db.run(
+    `UPDATE envelope_signers SET token_hash = ?, token_expires_at = datetime('now', ?)
+     WHERE envelope_id = ? AND org_id = ? AND role = 'customer'
+       AND EXISTS (SELECT 1 FROM signature_envelopes e WHERE e.id = envelope_signers.envelope_id AND e.status = 'Completed')`,
+    hash, `+${TOKEN_TTL_DAYS} days`, envelopeId, orgId,
+  );
+  return r.changes ? token : null;
 }
 
 export interface Signature {

@@ -7,6 +7,10 @@ import { getDb } from "./db";
 import { createFixedWindowLimiter } from "./rate-limit";
 import { declineByToken, decodeSignaturePng, sessionForToken, signByToken, SignError } from "./esign";
 import { clientInfo } from "./client-info";
+import { requestOrigin } from "./request-origin";
+import { issueDownloadLink } from "./esign";
+import { notifyCompleted, notifyCustomerSigned, notifyDeclined } from "./esign-notify";
+import { kickAmosOutbox } from "./amos-worker";
 
 const limited = createFixedWindowLimiter({ windowMs: 60_000, max: 10 });
 
@@ -21,12 +25,19 @@ export async function submitSignature(token: string, formData: FormData) {
   let message = "";
   try {
     const png = await decodeSignaturePng(String(formData.get("signature") ?? ""));
-    await signByToken(db, session, {
+    const completed = await signByToken(db, session, {
       png,
       method: formData.get("method") === "drawn" ? "drawn" : "typed",
       typedName: String(formData.get("typed_name") ?? ""),
       consented: formData.get("consent") === "yes",
     }, client);
+    const envelopeId = Number(session.envelope.id);
+    if (completed) {
+      await notifyCompleted(db, session.orgId, envelopeId, await issueDownloadLink(db, session.orgId, envelopeId), await requestOrigin());
+    } else {
+      await notifyCustomerSigned(db, session.orgId, envelopeId, await requestOrigin());
+    }
+    kickAmosOutbox();
   } catch (err) {
     if (!(err instanceof SignError)) throw err;
     message = err.message;
@@ -42,7 +53,10 @@ export async function declineSignature(token: string, formData: FormData) {
   if (!session) redirect(back(token, ""));
   let message = "";
   try {
-    await declineByToken(db, session, String(formData.get("reason") ?? "").trim(), client);
+    const reason = String(formData.get("reason") ?? "").trim();
+    await declineByToken(db, session, reason, client);
+    await notifyDeclined(db, session.orgId, Number(session.envelope.id), reason, await requestOrigin());
+    kickAmosOutbox();
   } catch (err) {
     if (!(err instanceof SignError)) throw err;
     message = err.message;
