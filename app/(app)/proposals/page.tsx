@@ -63,12 +63,15 @@ export default async function Proposals() {
           </tbody>
         </table>
       </div>
-      <h2 className="mb-2 font-semibold">Templates</h2>
+      <h2 className="mb-2 flex items-center justify-between font-semibold">
+        Templates
+        <Link href="/templates" className="text-xs font-normal text-[var(--accent-light)] hover:underline">Manage templates</Link>
+      </h2>
       <div className="space-y-2">
         {templates.map((t) => (
           <div key={String(t.id)} className="rounded-xl border border-[var(--card-border)] bg-[var(--card)] p-3 text-sm">
-            <div className="font-medium">{String(t.name)}</div>
-            <div className="text-xs text-[var(--muted)]">auto-fills: {String(t.fields)}</div>
+            <Link href={`/templates/${t.id}`} className="font-medium hover:underline">{String(t.name)}</Link>
+            <div className="text-xs text-[var(--muted)]">cover · estimate · summary &amp; signatures · spec sheets · terms</div>
           </div>
         ))}
       </div>

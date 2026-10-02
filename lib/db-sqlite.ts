@@ -189,6 +189,7 @@ export function createSqliteDb(): Db {
   if (dir && dir !== ".") mkdirSync(dir, { recursive: true });
   const db = new DatabaseSync(path);
   db.exec(SCHEMA);
+  migrateSqlite(db);
   seed(db);
   const api: Db = {
     async all<T = Record<string, unknown>>(sql: string, ...params: SqlValue[]): Promise<T[]> {
@@ -218,6 +219,76 @@ export function createSqliteDb(): Db {
     },
   };
   return api;
+}
+
+/** Mirror of migrations/003_templates_and_esign.sql. sqlite has no
+ *  ADD COLUMN IF NOT EXISTS, so columns are added only when PRAGMA says
+ *  they're missing — an older demo database upgrades in place. */
+const ESIGN_TABLES = `
+  CREATE TABLE IF NOT EXISTS files (
+    id INTEGER PRIMARY KEY,
+    org_id TEXT NOT NULL REFERENCES orgs(id),
+    purpose TEXT NOT NULL, filename TEXT NOT NULL, content_type TEXT NOT NULL,
+    size_bytes INTEGER NOT NULL, sha256 TEXT NOT NULL, bytes BLOB NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE TABLE IF NOT EXISTS signature_envelopes (
+    id INTEGER PRIMARY KEY,
+    org_id TEXT NOT NULL REFERENCES orgs(id),
+    proposal_id INTEGER NOT NULL REFERENCES proposals(id),
+    job_id INTEGER NOT NULL REFERENCES jobs(id),
+    status TEXT NOT NULL DEFAULT 'Out for signature',
+    snapshot TEXT NOT NULL, snapshot_sha256 TEXT NOT NULL,
+    final_file_id INTEGER REFERENCES files(id), final_sha256 TEXT,
+    created_by INTEGER REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    completed_at TEXT
+  );
+  CREATE TABLE IF NOT EXISTS envelope_signers (
+    id INTEGER PRIMARY KEY,
+    org_id TEXT NOT NULL REFERENCES orgs(id),
+    envelope_id INTEGER NOT NULL REFERENCES signature_envelopes(id),
+    role TEXT NOT NULL, name TEXT NOT NULL, email TEXT,
+    user_id INTEGER REFERENCES users(id),
+    token_hash TEXT UNIQUE, token_expires_at TEXT,
+    status TEXT NOT NULL DEFAULT 'Pending',
+    viewed_at TEXT, signed_at TEXT,
+    signature_file_id INTEGER REFERENCES files(id),
+    signature_method TEXT, typed_name TEXT, consent_text TEXT,
+    ip TEXT, user_agent TEXT, decline_reason TEXT
+  );
+  CREATE TABLE IF NOT EXISTS envelope_events (
+    id INTEGER PRIMARY KEY,
+    org_id TEXT NOT NULL REFERENCES orgs(id),
+    envelope_id INTEGER NOT NULL REFERENCES signature_envelopes(id),
+    signer_id INTEGER REFERENCES envelope_signers(id),
+    event TEXT NOT NULL, detail TEXT, ip TEXT, user_agent TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+`;
+
+const ESIGN_COLUMNS: ReadonlyArray<readonly [string, string, string]> = [
+  ["templates", "body", "TEXT"],
+  ["templates", "updated_at", "TEXT"],
+  ["proposals", "template_id", "INTEGER REFERENCES templates(id)"],
+  ["proposals", "declined_at", "TEXT"],
+  ["proposal_lines", "section", "TEXT NOT NULL DEFAULT ''"],
+  ["proposal_lines", "notes", "TEXT NOT NULL DEFAULT ''"],
+  ["proposal_lines", "position", "INTEGER NOT NULL DEFAULT 0"],
+  ["catalogue", "section", "TEXT NOT NULL DEFAULT ''"],
+  ["catalogue", "spec_file_id", "INTEGER REFERENCES files(id)"],
+  ["documents", "file_id", "INTEGER REFERENCES files(id)"],
+  ["documents", "envelope_id", "INTEGER REFERENCES signature_envelopes(id)"],
+];
+
+function migrateSqlite(d: DatabaseSync) {
+  d.exec(ESIGN_TABLES);
+  for (const [table, column, type] of ESIGN_COLUMNS) {
+    const cols = d.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+    if (!cols.some((c) => c.name === column)) {
+      d.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+    }
+  }
 }
 
 function seed(d: DatabaseSync) {

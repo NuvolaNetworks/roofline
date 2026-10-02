@@ -14,7 +14,7 @@ const TOOLS = [
   ["/estimate", "Instant Estimator"],
   ["/measurements", "Measurements"],
   ["/proposals", "Proposals"],
-  ["/documents", "PDF Signer"],
+  ["/documents", "Documents & Signatures"],
   ["/orders", "Material & Work Orders"],
   ["/invoices", "Invoices"],
   ["/payments", "Payments"],
@@ -23,6 +23,7 @@ const TOOLS = [
 const MANAGE = [
   ["/contacts", "Contacts"],
   ["/catalogue", "Catalog"],
+  ["/templates", "Proposal Templates"],
   ["/automations", "Automations"],
   ["/communications", "Communications"],
   ["/settings", "Settings"],

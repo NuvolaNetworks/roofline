@@ -106,6 +106,46 @@ Runbook:
 4. Read the per-table report it prints
    (`inserted / existing / skipped_demo / skipped_dangling`).
 
+## Proposal templates and e-signature
+
+A proposal template is branding (company name, tagline, accent colour,
+logo, cover stats, office phone) plus an ordered list of pages: **cover**,
+**estimate** (line items grouped by section, with notes and quantities;
+line prices optional), **summary & signatures**, **attachments** (spec-sheet
+PDFs), and **text** (terms, scope, warranty — `## heading`, `- bullet`).
+Text supports fill-ins like `{{customer.name}}` and `{{company.name}}`.
+Templates are edited at `/templates` (admins/managers); catalog items can
+carry a spec sheet that attaches itself to any proposal containing the item.
+
+One render model (`lib/proposal-model.ts`) drives both outputs: the HTML
+document (`components/ProposalDocument.tsx`) and the PDF
+(`lib/proposal-pdf.ts`, pure-JS `pdf-lib`, no headless browser).
+
+Signing is native (`lib/esign.ts`), no third-party signer:
+
+- **Send** freezes the render model as canonical JSON on a signature
+  envelope and SHA-256 fingerprints it; later proposal edits can't change
+  what's signed (edit = void + resend).
+- The **customer** signs at `/sign/<token>` from any browser, no login — a
+  random 32-byte link token shown once to the sender; only its hash is
+  stored; it expires after 30 days and can be reissued (old link dies).
+- The **rep** (the job's assignee) countersigns in-app.
+- Each signer must tick the e-sign consent; draw or type a signature. Views,
+  consents, signatures, declines and voids go to `envelope_events` with IP
+  and user agent.
+- When all have signed, the final PDF is rendered from the snapshot with
+  signatures stamped on the summary page and a **signature certificate**
+  appended, attachment hashes are re-verified, and the PDF is stored
+  (hashed) and filed under Documents on the job. The proposal becomes
+  Signed: job value set, 50% deposit invoice drafted, job → Approved.
+
+Files (logos, spec sheets, signatures, signed PDFs) live in the database
+(`files`, bytea), type-sniffed on upload, ≤ 15 MB each.
+
+Not yet: Roofline doesn't send email itself — the sender copies the link or
+opens a prefilled email. Signatures are ESIGN/UETA-style (intent, consent,
+attribution, integrity), not PKI digital signatures.
+
 ## Development
 
 ```

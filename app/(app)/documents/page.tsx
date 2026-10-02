@@ -25,7 +25,8 @@ export default async function Documents() {
     <div className="max-w-4xl p-6">
       <h1 className="mb-1 text-xl font-semibold">PDF Signer &amp; File Manager</h1>
       <p className="mb-4 text-sm text-[var(--muted)]">
-        Templates auto-fill from the job file; signed documents land back on the job.
+        Proposals signed electronically are filed here with their signature certificate. Other documents can be
+        tracked here and marked signed when signed on paper.
       </p>
       <div className="mb-6 rounded-xl border border-[var(--card-border)] bg-[var(--card)]">
         <table className="w-full text-sm">
@@ -50,10 +51,14 @@ export default async function Documents() {
                     <span className={`rounded-full px-2 py-0.5 text-xs ${tone(String(d.status))}`}>{String(d.status)}</span>
                   </td>
                   <td className="px-4 py-3 text-right">
-                    {d.status !== "Signed" ? (
+                    {d.file_id ? (
+                      <a href={`/files/${d.file_id}?download=1`} className="rounded-lg border border-[var(--card-border)] px-3 py-1 text-xs hover:bg-black/5">
+                        Download PDF
+                      </a>
+                    ) : d.status !== "Signed" ? (
                       <form action={sign}>
                         <button className="rounded-lg border border-[var(--card-border)] px-3 py-1 text-xs hover:bg-black/5">
-                          Record signature
+                          Mark signed (paper)
                         </button>
                       </form>
                     ) : (

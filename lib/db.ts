@@ -27,7 +27,8 @@ export const WORKFLOWS = ["Roofing", "Construction", "Service"] as const;
 
 export const COMMISSION_RATE = 0.1;
 
-export type SqlValue = string | number | null;
+/** Uint8Array binds as bytea (Postgres) / BLOB (sqlite) — see lib/files.ts. */
+export type SqlValue = string | number | null | Uint8Array;
 
 export interface RunResult {
   /** Generated integer id of an INSERT (0 when the key isn't integral). */

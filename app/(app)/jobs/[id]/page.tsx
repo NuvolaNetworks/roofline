@@ -13,6 +13,7 @@ import {
   createInvoice,
 } from "@/lib/actions";
 import { usd, usd2, daysSince, tone } from "@/lib/fmt";
+import { createBlankProposal } from "@/lib/proposal-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -59,6 +60,7 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
   const order = orderMeasurement.bind(null, jobId);
   const draftProposal = createProposalFromMeasurement.bind(null, jobId);
   const newDoc = createDocument.bind(null, jobId);
+  const blankProposal = createBlankProposal.bind(null, jobId);
   const newMaterial = createMaterialOrder.bind(null, jobId);
   const newWork = createWorkOrder.bind(null, jobId);
   const note = addNote.bind(null, jobId);
@@ -145,6 +147,9 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
             </form>
             <form action={draftProposal}>
               <button className={btn}>Build proposal from measurement</button>
+            </form>
+            <form action={blankProposal}>
+              <button className={btn}>Blank proposal</button>
             </form>
           </div>
         </Panel>

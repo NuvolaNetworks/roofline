@@ -176,7 +176,7 @@ export async function createProposalFromMeasurement(jobId: number) {
   const cat = new Map(
     (
       await db.all<Record<string, string | number>>(
-        "SELECT sku, name, unit, price_cents, cost_cents FROM catalogue WHERE org_id = ?",
+        "SELECT sku, name, unit, price_cents, cost_cents, section FROM catalogue WHERE org_id = ?",
         user.org_id,
       )
     ).map((r) => [String(r.sku), r]),
@@ -199,13 +199,17 @@ export async function createProposalFromMeasurement(jobId: number) {
   const pid = proposal.lastId;
   let total = 0;
   let cost = 0;
+  let position = 0;
   for (const [sku, qty] of plan) {
     const item = cat.get(sku);
     if (!item) continue;
+    // The catalog item's own proposal section wins; otherwise labor and
+    // disposal group apart from materials.
+    const section = String(item.section ?? "") || (/^(LAB|DUMP)-/.test(sku) ? "Labor & Disposal" : "Materials");
     await db.run(
-      "INSERT INTO proposal_lines (org_id, proposal_id, sku, name, unit, qty, unit_price_cents, unit_cost_cents) VALUES (?,?,?,?,?,?,?,?)",
+      "INSERT INTO proposal_lines (org_id, proposal_id, sku, name, unit, qty, unit_price_cents, unit_cost_cents, section, position) VALUES (?,?,?,?,?,?,?,?,?,?)",
       user.org_id, pid, sku, String(item.name), String(item.unit), qty,
-      Number(item.price_cents), Number(item.cost_cents),
+      Number(item.price_cents), Number(item.cost_cents), section, ++position,
     );
     total += Math.round(Number(item.price_cents) * qty);
     cost += Math.round(Number(item.cost_cents) * qty);
@@ -222,46 +226,6 @@ export async function createProposalFromMeasurement(jobId: number) {
   await touchJob(user.org_id, jobId);
   revalidatePath("/proposals");
   redirect(`/proposals/${pid}`);
-}
-
-export async function setProposalStatus(proposalId: number, status: string) {
-  const user = await requireUser();
-  const db = getDb();
-  const p = await db.get<{ job_id: number; total_cents: number; cost_cents: number }>(
-    "SELECT job_id, total_cents, cost_cents FROM proposals WHERE id = ? AND org_id = ?",
-    proposalId, user.org_id,
-  );
-  if (!p) return;
-  const stamp =
-    status === "Sent" ? ", sent_at = datetime('now')"
-    : status === "Viewed" ? ", viewed_at = datetime('now')"
-    : status === "Signed" ? ", signed_at = datetime('now')"
-    : "";
-  await db.run(
-    `UPDATE proposals SET status = ?${stamp} WHERE id = ? AND org_id = ?`,
-    status, proposalId, user.org_id,
-  );
-  await log(
-    user.org_id, p.job_id,
-    status === "Signed" ? "stage" : "email", `Proposal ${status.toLowerCase()}`, user.name,
-    status === "Sent" ? "outbound" : "internal",
-  );
-  if (status === "Signed") {
-    // A signed proposal is the job's value, and it moves the pipeline.
-    await db.run(
-      "UPDATE jobs SET value_cents = ?, cost_cents = ? WHERE id = ? AND org_id = ?",
-      p.total_cents, p.cost_cents, p.job_id, user.org_id,
-    );
-    await db.run(
-      "INSERT INTO invoices (org_id, job_id, kind, amount_cents, status, due_on) VALUES (?,?,?,?, 'Draft', date('now','+3 days'))",
-      user.org_id, p.job_id, "Deposit", Math.round(p.total_cents / 2),
-    );
-    await log(user.org_id, p.job_id, "system", "Deposit invoice drafted (50%)", user.name);
-    await setStage(p.job_id, "Approved");
-  }
-  revalidatePath(`/proposals/${proposalId}`);
-  revalidatePath("/proposals");
-  await touchJob(user.org_id, p.job_id);
 }
 
 // ── Documents (PDF signer + file manager) ────────────────────────────
