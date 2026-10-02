@@ -7,6 +7,7 @@ import { getDb, STAGES, type Stage } from "./db";
 import { authMode, currentUser, login, logout, type User } from "./auth";
 import { DEMO_ESTIMATOR_TOKEN } from "./demo-fixtures";
 import { createFixedWindowLimiter } from "./rate-limit";
+import { buildProposalFromMeasurement } from "./proposal-ops";
 
 /** Authenticated user, or bounce to login. Their org_id scopes every query
  *  in this file — org NEVER comes from client input. */
@@ -157,72 +158,9 @@ export async function orderMeasurement(jobId: number) {
  *  customer asked for — the measurement drives the line items. */
 export async function createProposalFromMeasurement(jobId: number) {
   const user = await requireUser();
-  const db = getDb();
-  const job = await db.get<{ id: number }>(
-    "SELECT id FROM jobs WHERE id = ? AND org_id = ?",
-    jobId, user.org_id,
-  );
+  const job = await getDb().get<{ id: number }>("SELECT id FROM jobs WHERE id = ? AND org_id = ?", jobId, user.org_id);
   if (!job) return;
-  const m = await db.get<Record<string, number>>(
-    "SELECT * FROM measurements WHERE job_id = ? AND org_id = ? AND status = 'delivered' ORDER BY id DESC LIMIT 1",
-    jobId, user.org_id,
-  );
-  const squares = Number(m?.total_squares ?? 0) || 25;
-  const waste = 1 + Number(m?.waste_pct ?? 12) / 100;
-  const withWaste = Math.round(squares * waste * 10) / 10;
-  const ridge = Number(m?.ridge_ft ?? 0) + Number(m?.hip_ft ?? 0);
-  const eaveRake = Number(m?.eave_ft ?? 0) + Number(m?.rake_ft ?? 0);
-
-  const cat = new Map(
-    (
-      await db.all<Record<string, string | number>>(
-        "SELECT sku, name, unit, price_cents, cost_cents, section FROM catalogue WHERE org_id = ?",
-        user.org_id,
-      )
-    ).map((r) => [String(r.sku), r]),
-  );
-  const plan: Array<[string, number]> = [
-    ["GAF-TIMB-HDZ-CH", withWaste],
-    ["SYN-FELT-10SQ", Math.max(1, Math.ceil(squares / 10))],
-    ["ICE-WATER-2SQ", Math.max(1, Math.ceil(eaveRake / 100))],
-    ["GAF-SEALAR-RIDGE", Math.max(1, Math.ceil(ridge / 20))],
-    ["DRIP-F5-WHT-10", Math.max(1, Math.ceil(eaveRake / 10))],
-    ["LAB-TEAROFF", squares],
-    ["LAB-INSTALL", squares],
-    ["DUMP-30YD", 1],
-  ];
-
-  const proposal = await db.run(
-    "INSERT INTO proposals (org_id, job_id, name, status) VALUES (?,?,?, 'Draft')",
-    user.org_id, jobId, `Roof replacement — ${squares} sq`,
-  );
-  const pid = proposal.lastId;
-  let total = 0;
-  let cost = 0;
-  let position = 0;
-  for (const [sku, qty] of plan) {
-    const item = cat.get(sku);
-    if (!item) continue;
-    // The catalog item's own proposal section wins; otherwise labor and
-    // disposal group apart from materials.
-    const section = String(item.section ?? "") || (/^(LAB|DUMP)-/.test(sku) ? "Labor & Disposal" : "Materials");
-    await db.run(
-      "INSERT INTO proposal_lines (org_id, proposal_id, sku, name, unit, qty, unit_price_cents, unit_cost_cents, section, position) VALUES (?,?,?,?,?,?,?,?,?,?)",
-      user.org_id, pid, sku, String(item.name), String(item.unit), qty,
-      Number(item.price_cents), Number(item.cost_cents), section, ++position,
-    );
-    total += Math.round(Number(item.price_cents) * qty);
-    cost += Math.round(Number(item.cost_cents) * qty);
-  }
-  await db.run(
-    "UPDATE proposals SET total_cents = ?, cost_cents = ? WHERE id = ? AND org_id = ?",
-    total, cost, pid, user.org_id,
-  );
-  await log(
-    user.org_id, jobId, "system",
-    `Proposal drafted from measurement (${squares} sq, ${Math.round((waste - 1) * 100)}% waste)`,
-    user.name,
-  );
+  const pid = await buildProposalFromMeasurement(getDb(), user.org_id, jobId, user);
   await touchJob(user.org_id, jobId);
   revalidatePath("/proposals");
   redirect(`/proposals/${pid}`);

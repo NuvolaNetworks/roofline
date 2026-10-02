@@ -28,34 +28,121 @@ services:
 # publish is the receipted app_mcp_publish verb, because exposing tools to
 # customers is consequential and belongs in the proof ledger.
 mcp:
+  # Generated from lib/tools.ts by scripts/publish-tools.ts --write-manifest.
+  # The live surface is published with the receipted app_mcp_publish verb.
   tools:
     - name: list_jobs
-      description: List jobs in the pipeline, optionally filtered by stage.
+      description: "List jobs in the Roofline pipeline (newest activity first), optionally filtered by stage (New lead, Assigned lead, Prospect, Approved, Scheduled, Completed/Invoiced, Ready for Commission, Closed) or a search over title, customer and address."
       http_method: GET
-      http_path: /api/jobs
+      http_path: /api/tools/list_jobs
       classification: read
     - name: get_job
-      description: The full job file — details, timeline, and measurement reports.
+      description: "The full job file: details, customer, timeline, measurements, proposals, invoices, and the job's money (collected, outstanding, costs, profit)."
       http_method: GET
-      http_path: /api/jobs/{id}
+      http_path: /api/tools/get_job
       classification: read
     - name: pipeline_summary
-      description: Job count and value by pipeline stage.
+      description: "Job count and total value by pipeline stage."
       http_method: GET
-      http_path: /api/pipeline
+      http_path: /api/tools/pipeline_summary
       classification: read
     - name: create_lead
-      description: Capture a new lead and open its job file.
+      description: "Capture a new lead: creates the homeowner contact and opens a job in New lead, assigned to you (or the first rep)."
       http_method: POST
-      http_path: /api/leads
+      http_path: /api/tools/create_lead
       classification: write
     - name: advance_job_stage
-      description: Move a job to the next pipeline stage.
+      description: "Move a job to the next pipeline stage, or to a named stage with 'stage' (New lead → Assigned lead → Prospect → Approved → Scheduled → Completed/Invoiced → Ready for Commission → Closed)."
       http_method: POST
-      http_path: /api/jobs/{id}/stage
+      http_path: /api/tools/advance_job_stage
       classification: write
     - name: order_measurement
-      description: Order a roof measurement report for a job.
+      description: "Order a roof measurement report for a job and attach it to the job file."
       http_method: POST
-      http_path: /api/jobs/{id}/measurement
+      http_path: /api/tools/order_measurement
+      classification: write
+    - name: list_proposals
+      description: "List proposals (newest first) with status (Draft, Sent, Viewed, Signed, Declined) and totals; filter by job or status."
+      http_method: GET
+      http_path: /api/tools/list_proposals
+      classification: read
+    - name: get_proposal
+      description: "One proposal in full: line items (with line_id for edits), sections, notes, totals, e-signature status per signer, and billing (invoiced, paid, left to bill)."
+      http_method: GET
+      http_path: /api/tools/get_proposal
+      classification: read
+    - name: create_proposal
+      description: "Start a proposal for a job: from='measurement' builds line items from the job's latest roof measurement and catalog prices; from='blank' starts empty."
+      http_method: POST
+      http_path: /api/tools/create_proposal
+      classification: write
+    - name: add_proposal_line
+      description: "Add a line to a draft proposal: a catalog item by sku (price, unit and section default from the catalog) or a custom item by name. Notes print under the item, one per line."
+      http_method: POST
+      http_path: /api/tools/add_proposal_line
+      classification: write
+    - name: update_proposal_line
+      description: "Change a line on a draft proposal; only the fields you pass change."
+      http_method: POST
+      http_path: /api/tools/update_proposal_line
+      classification: write
+    - name: remove_proposal_line
+      description: "Remove a line from a draft proposal."
+      http_method: POST
+      http_path: /api/tools/remove_proposal_line
+      classification: write
+    - name: send_proposal_for_signature
+      description: "Freeze the proposal and send it for e-signature: the homeowner is emailed a personal signing link (from your company, Reply-To the rep). Returns the link. The rep countersigns in Roofline. Editing afterwards requires void_signature_request."
+      http_method: POST
+      http_path: /api/tools/send_proposal_for_signature
+      classification: write
+    - name: void_signature_request
+      description: "Withdraw a proposal that's out for signature (its link stops working) and return it to Draft for editing."
+      http_method: POST
+      http_path: /api/tools/void_signature_request
+      classification: write
+    - name: list_invoices
+      description: "List invoices with amount, paid, balance and status (Draft, Sent, Viewed, Partially paid, Paid, Void); filter by job or status."
+      http_method: GET
+      http_path: /api/tools/list_invoices
+      classification: read
+    - name: create_invoice
+      description: "Invoice a share of a proposal: mode='percent' with percent (e.g. 50 for the deposit), mode='remaining' for the final payment (everything not yet invoiced), or mode='amount' with amount in dollars. Can't exceed what's left to bill. send=true emails it to the homeowner right away."
+      http_method: POST
+      http_path: /api/tools/create_invoice
+      classification: write
+    - name: send_invoice
+      description: "Email an invoice to the homeowner with a link to view and download it (a resend issues a fresh link). Returns the link."
+      http_method: POST
+      http_path: /api/tools/send_invoice
+      classification: write
+    - name: record_payment
+      description: "Record money received on an invoice (partial payments allowed; the invoice turns Paid when covered). method: Check, ACH / bank transfer, Card, Cash, Financing, Insurance check, Other."
+      http_method: POST
+      http_path: /api/tools/record_payment
+      classification: write
+    - name: void_invoice
+      description: "Void an invoice that has no payments (its link stops working and the amount can be billed again)."
+      http_method: POST
+      http_path: /api/tools/void_invoice
+      classification: write
+    - name: job_money
+      description: "A job's money: contract value, invoiced, collected, outstanding, not yet invoiced, costs by category, committed orders, profit and margin."
+      http_method: GET
+      http_path: /api/tools/job_money
+      classification: read
+    - name: add_job_cost
+      description: "Log money spent on a job (category: materials, labor, subcontractor, permit, disposal, equipment, other)."
+      http_method: POST
+      http_path: /api/tools/add_job_cost
+      classification: write
+    - name: list_catalog
+      description: "The company's catalog: SKU, name, unit, price, cost, proposal section, and whether a spec sheet is attached. Use the SKU with add_proposal_line."
+      http_method: GET
+      http_path: /api/tools/list_catalog
+      classification: read
+    - name: add_catalog_item
+      description: "Add a custom catalog item (materials, labor, fees) with its unit, price, cost and the proposal section it lands in."
+      http_method: POST
+      http_path: /api/tools/add_catalog_item
       classification: write

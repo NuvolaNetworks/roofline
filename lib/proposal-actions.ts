@@ -11,6 +11,7 @@ import { clientInfo } from "./client-info";
 import { loadProposalModel, getProposal } from "./proposal-data";
 import { applyProposalSigned, logJobEvent, recalcProposal } from "./proposal-effects";
 import { requestOrigin } from "./request-origin";
+import * as ops from "./proposal-ops";
 import { createProposalFromMeasurement } from "./actions";
 import { notifyCompleted, notifySent, notifyVoided } from "./esign-notify";
 import { kickAmosOutbox } from "./amos-worker";
@@ -46,6 +47,11 @@ async function editable(user: User, proposalId: number) {
   return p;
 }
 
+async function refreshProposal(id: number) {
+  const p = await getDb().get<{ job_id: number }>("SELECT job_id FROM proposals WHERE id = ?", id);
+  refresh(id, Number(p?.job_id ?? 0));
+}
+
 function refresh(id: number, jobId: number) {
   revalidatePath(page(id));
   revalidatePath("/proposals");
@@ -62,12 +68,14 @@ const text = (v: FormDataEntryValue | null, max: number) => String(v ?? "").trim
 
 export async function createBlankProposal(jobId: number) {
   const user = await requireUser();
-  const db = getDb();
-  const job = await db.get<{ id: number; title: string }>("SELECT id, title FROM jobs WHERE id = ? AND org_id = ?", jobId, user.org_id);
-  if (!job) redirect("/jobs");
-  const p = await db.run("INSERT INTO proposals (org_id, job_id, name, status) VALUES (?,?,?, 'Draft')", user.org_id, jobId, `Proposal — ${job.title}`);
-  await logJobEvent(db, user.org_id, jobId, "system", "Blank proposal created", user.name);
-  redirect(page(p.lastId));
+  let pid = 0;
+  try {
+    pid = await ops.createBlankProposal(getDb(), user.org_id, jobId, user);
+  } catch (e) {
+    if (e instanceof ops.OpError) redirect("/jobs");
+    throw e;
+  }
+  redirect(page(pid));
 }
 
 /** "New proposal" from the Proposals page: pick the job, start blank or
@@ -100,62 +108,51 @@ export async function updateProposalMeta(proposalId: number, formData: FormData)
 
 export async function addLine(proposalId: number, formData: FormData) {
   const user = await requireUser();
-  const p = await editable(user, proposalId);
-  const db = getDb();
-  const sku = text(formData.get("sku"), 60);
-  const item = sku
-    ? await db.get<{ sku: string; name: string; unit: string; price_cents: number; cost_cents: number; section: string }>(
-        "SELECT sku, name, unit, price_cents, cost_cents, section FROM catalogue WHERE org_id = ? AND sku = ?",
-        user.org_id, sku,
-      )
-    : undefined;
-  const name = text(formData.get("name"), 200) || item?.name || "";
-  if (!name) err(proposalId, "Pick a catalog item or enter an item name.");
   const priceField = text(formData.get("price"), 20);
-  const pos = await db.get<{ m: number }>("SELECT COALESCE(MAX(position), 0) AS m FROM proposal_lines WHERE proposal_id = ? AND org_id = ?", proposalId, user.org_id);
-  await db.run(
-    `INSERT INTO proposal_lines (org_id, proposal_id, sku, name, unit, qty, unit_price_cents, unit_cost_cents, section, notes, position)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-    user.org_id, proposalId,
-    item?.sku ?? "CUSTOM", name,
-    text(formData.get("unit"), 30) || item?.unit || "each",
-    Math.max(0, num(formData.get("qty"), 1)),
-    priceField ? Math.round(num(priceField) * 100) : Number(item?.price_cents ?? 0),
-    Number(item?.cost_cents ?? 0),
-    text(formData.get("section"), 120) || item?.section || "",
-    text(formData.get("notes"), 4000),
-    Number(pos?.m ?? 0) + 1,
-  );
-  await recalcProposal(db, user.org_id, proposalId);
-  refresh(proposalId, p.job_id);
+  try {
+    await ops.addProposalLine(getDb(), user.org_id, proposalId, {
+      sku: text(formData.get("sku"), 60),
+      name: text(formData.get("name"), 200),
+      section: text(formData.get("section"), 120),
+      notes: text(formData.get("notes"), 4000),
+      qty: num(formData.get("qty"), 1),
+      unit: text(formData.get("unit"), 30),
+      unit_price: priceField ? num(priceField) : null,
+    });
+  } catch (e) {
+    if (e instanceof ops.OpError) err(proposalId, e.message);
+    throw e;
+  }
+  refreshProposal(proposalId);
 }
 
 export async function updateLine(proposalId: number, lineId: number, formData: FormData) {
   const user = await requireUser();
-  const p = await editable(user, proposalId);
-  const db = getDb();
-  await db.run(
-    `UPDATE proposal_lines SET section = ?, name = ?, notes = ?, qty = ?, unit = ?, unit_price_cents = ?
-     WHERE id = ? AND proposal_id = ? AND org_id = ?`,
-    text(formData.get("section"), 120),
-    text(formData.get("name"), 200) || "Item",
-    text(formData.get("notes"), 4000),
-    Math.max(0, num(formData.get("qty"))),
-    text(formData.get("unit"), 30) || "each",
-    Math.round(Math.max(0, num(formData.get("price"))) * 100),
-    lineId, proposalId, user.org_id,
-  );
-  await recalcProposal(db, user.org_id, proposalId);
-  refresh(proposalId, p.job_id);
+  try {
+    await ops.updateProposalLine(getDb(), user.org_id, proposalId, lineId, {
+      section: text(formData.get("section"), 120),
+      name: text(formData.get("name"), 200),
+      notes: text(formData.get("notes"), 4000),
+      qty: num(formData.get("qty")),
+      unit: text(formData.get("unit"), 30),
+      unit_price: num(formData.get("price")),
+    });
+  } catch (e) {
+    if (e instanceof ops.OpError) err(proposalId, e.message);
+    throw e;
+  }
+  refreshProposal(proposalId);
 }
 
 export async function deleteLine(proposalId: number, lineId: number) {
   const user = await requireUser();
-  const p = await editable(user, proposalId);
-  const db = getDb();
-  await db.run("DELETE FROM proposal_lines WHERE id = ? AND proposal_id = ? AND org_id = ?", lineId, proposalId, user.org_id);
-  await recalcProposal(db, user.org_id, proposalId);
-  refresh(proposalId, p.job_id);
+  try {
+    await ops.removeProposalLine(getDb(), user.org_id, proposalId, lineId);
+  } catch (e) {
+    if (e instanceof ops.OpError) err(proposalId, e.message);
+    throw e;
+  }
+  refreshProposal(proposalId);
 }
 
 export async function moveLine(proposalId: number, lineId: number, dir: -1 | 1) {
@@ -183,24 +180,17 @@ export async function moveLine(proposalId: number, lineId: number, dir: -1 | 1) 
 
 export async function sendForSignature(proposalId: number) {
   const user = await requireUser();
-  const p = await editable(user, proposalId);
-  const db = getDb();
-  const loaded = await loadProposalModel(db, user.org_id, proposalId, user);
-  if (!loaded) redirect("/proposals");
-  if (!loaded.lines.length) err(proposalId, "Add at least one line item before sending.");
-  let token = "";
-  let envelopeId = 0;
+  let link = "";
   try {
-    ({ token, envelopeId } = await createEnvelope(db, user.org_id, proposalId, p.job_id, loaded.model, user, loaded.rep));
+    ({ signing_url: link } = await ops.sendProposalForSignature(getDb(), user.org_id, proposalId, user, await requestOrigin()));
   } catch (e) {
-    if (!(e instanceof SignError)) throw e;
-    err(proposalId, e.message);
+    if (e instanceof ops.OpError) err(proposalId, e.message);
+    throw e;
   }
-  await notifySent(db, user.org_id, envelopeId, token, await requestOrigin());
   kickAmosOutbox();
-  refresh(proposalId, p.job_id);
+  refreshProposal(proposalId);
   // The raw link is shown once, to the sender; only its hash is stored.
-  redirect(page(proposalId, `link=${encodeURIComponent(token)}`));
+  redirect(page(proposalId, `link=${encodeURIComponent(link.split("/sign/")[1] ?? "")}`));
 }
 
 async function activeEnvelope(user: User, proposalId: number) {

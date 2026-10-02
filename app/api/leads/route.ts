@@ -27,7 +27,7 @@ export async function POST(req: Request) {
   ));
   const job = await db.run(
     `INSERT INTO jobs (org_id, title, contact_id, address, trade, source, stage, assignee_id)
-     VALUES (?,?,?,?,?,?, 'Lead', ?)`,
+     VALUES (?,?,?,?,?,?, 'New lead', ?)`,
     auth.orgId,
     String(body.title || `${trade} — ${name}`),
     contact.lastId,
@@ -42,7 +42,7 @@ export async function POST(req: Request) {
   );
   return Response.json({
     job_id: job.lastId,
-    stage: "Lead",
+    stage: "New lead",
     title: String(body.title || `${trade} — ${name}`),
   });
 }
