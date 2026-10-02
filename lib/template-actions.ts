@@ -89,6 +89,7 @@ export async function updateBranding(id: number, formData: FormData) {
   b.tagline = text(formData.get("tagline"), 160).trim();
   b.accent = normalizeAccent(formData.get("accent"));
   b.phone = text(formData.get("phone"), 40).trim();
+  b.payment_instructions = text(formData.get("payment_instructions"), 2000).trim();
   b.stats = [0, 1, 2, 3].map((i) => ({
     value: text(formData.get(`stat_value_${i}`), 24).trim(),
     label: text(formData.get(`stat_label_${i}`), 40).trim(),

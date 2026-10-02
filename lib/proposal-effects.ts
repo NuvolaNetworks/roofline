@@ -52,11 +52,21 @@ export async function applyProposalSigned(db: Db, orgId: string, proposalId: num
     p.total_cents, p.cost_cents, p.job_id, orgId,
   );
   await logJobEvent(db, orgId, p.job_id, "stage", "Proposal signed", actor);
-  await db.run(
-    "INSERT INTO invoices (org_id, job_id, kind, amount_cents, status, due_on) VALUES (?,?,?,?, 'Draft', date('now','+3 days'))",
-    orgId, p.job_id, "Deposit", Math.round(Number(p.total_cents) / 2),
+  // The 50% deposit, drafted ready to send (lib/invoices.ts sends it). Not
+  // duplicated if this proposal already has invoices.
+  const existing = await db.get<{ n: number }>(
+    "SELECT COUNT(*) AS n FROM invoices WHERE proposal_id = ? AND org_id = ? AND status != 'Void'",
+    proposalId, orgId,
   );
-  await logJobEvent(db, orgId, p.job_id, "system", "Deposit invoice drafted (50%)", actor);
+  if (Number(existing?.n ?? 0) === 0) {
+    const inv = await db.run(
+      `INSERT INTO invoices (org_id, job_id, proposal_id, kind, title, percent, amount_cents, status, due_on)
+       VALUES (?,?,?, 'Deposit', '50% deposit', 50, ?, 'Draft', date('now','+3 days'))`,
+      orgId, p.job_id, proposalId, Math.round(Number(p.total_cents) / 2),
+    );
+    await db.run("UPDATE invoices SET number = ? WHERE id = ? AND org_id = ?", `INV-${String(inv.lastId).padStart(5, "0")}`, inv.lastId, orgId);
+    await logJobEvent(db, orgId, p.job_id, "system", "50% deposit invoice drafted — ready to send", actor);
+  }
   await db.run(
     "UPDATE jobs SET stage = 'Approved', stage_since = datetime('now'), updated_at = datetime('now') WHERE id = ? AND org_id = ?",
     p.job_id, orgId,

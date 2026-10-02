@@ -25,6 +25,7 @@ import type { RenderModel } from "@/lib/proposal-model";
 import ProposalDocument, { type SignatureView } from "@/components/ProposalDocument";
 import SignaturePad from "@/components/SignaturePad";
 import CopyButton from "@/components/CopyButton";
+import InvoicesPanel from "@/components/InvoicesPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -43,7 +44,7 @@ export default async function Proposal({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ link?: string; error?: string }>;
+  searchParams: Promise<{ link?: string; error?: string; invoice_link?: string; invoice_id?: string; invoice_error?: string }>;
 }) {
   const user = await currentUser();
   if (!user) redirect("/login");
@@ -240,6 +241,21 @@ export default async function Proposal({
           </div>
         ) : null}
       </div>
+
+      {p.status === "Signed" ? (
+        <div className="mb-6 rounded-xl border border-[var(--card-border)] bg-[var(--card)] p-4">
+          <h2 className="mb-2 font-semibold">Invoices</h2>
+          <InvoicesPanel
+            orgId={user.org_id}
+            jobId={p.job_id}
+            proposalId={pid}
+            returnTo={`/proposals/${pid}`}
+            link={q.invoice_link}
+            linkInvoiceId={Number(q.invoice_id) || undefined}
+            error={q.invoice_error}
+          />
+        </div>
+      ) : null}
 
       {/* ── Editor ──────────────────────────────────────────────────── */}
       {editable ? (

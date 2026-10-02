@@ -20,6 +20,9 @@ export interface Branding {
   logo_file_id: number | null;
   /** Office phone shown with the rep in the page footer. */
   phone: string;
+  /** How to pay — printed on every invoice (payable to, mailing address,
+   *  bank details, financing note). */
+  payment_instructions: string;
   stats: Stat[];
 }
 
@@ -121,6 +124,7 @@ export function defaultProposalTemplate(companyName = ""): TemplateBody {
       accent: "#C8102E",
       logo_file_id: null,
       phone: "",
+      payment_instructions: "",
       stats: [],
     },
     blocks: [
@@ -235,6 +239,7 @@ export function normalizeTemplate(raw: unknown, companyName = ""): TemplateBody 
       accent: normalizeAccent(b.accent),
       logo_file_id: fileId(b.logo_file_id),
       phone: str(b.phone, 40).trim(),
+      payment_instructions: str(b.payment_instructions, 2000).trim(),
       stats,
     },
     blocks,

@@ -275,6 +275,15 @@ const ESIGN_TABLES = `
     kid TEXT NOT NULL, public_key TEXT NOT NULL, private_key_enc TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
+  CREATE TABLE IF NOT EXISTS job_costs (
+    id INTEGER PRIMARY KEY,
+    org_id TEXT NOT NULL REFERENCES orgs(id),
+    job_id INTEGER NOT NULL REFERENCES jobs(id),
+    category TEXT NOT NULL, vendor TEXT NOT NULL DEFAULT '', description TEXT NOT NULL DEFAULT '',
+    amount_cents INTEGER NOT NULL, incurred_on TEXT,
+    file_id INTEGER REFERENCES files(id), created_by INTEGER REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
   CREATE TABLE IF NOT EXISTS envelope_events (
     id INTEGER PRIMARY KEY,
     org_id TEXT NOT NULL REFERENCES orgs(id),
@@ -297,6 +306,19 @@ const ESIGN_COLUMNS: ReadonlyArray<readonly [string, string, string]> = [
   ["catalogue", "spec_file_id", "INTEGER REFERENCES files(id)"],
   ["documents", "file_id", "INTEGER REFERENCES files(id)"],
   ["documents", "envelope_id", "INTEGER REFERENCES signature_envelopes(id)"],
+  ["invoices", "proposal_id", "INTEGER REFERENCES proposals(id)"],
+  ["invoices", "number", "TEXT"],
+  ["invoices", "title", "TEXT"],
+  ["invoices", "percent", "REAL"],
+  ["invoices", "notes", "TEXT NOT NULL DEFAULT ''"],
+  ["invoices", "amount_paid_cents", "INTEGER NOT NULL DEFAULT 0"],
+  ["invoices", "token_hash", "TEXT"],
+  ["invoices", "token_expires_at", "TEXT"],
+  ["invoices", "viewed_at", "TEXT"],
+  ["invoices", "voided_at", "TEXT"],
+  ["payments", "received_on", "TEXT"],
+  ["payments", "note", "TEXT NOT NULL DEFAULT ''"],
+  ["payments", "recorded_by", "INTEGER REFERENCES users(id)"],
 ];
 
 function migrateSqlite(d: DatabaseSync) {

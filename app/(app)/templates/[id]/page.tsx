@@ -158,6 +158,16 @@ export default async function TemplateEditor({
               </div>
             </div>
             <div>
+              <span className={label}>Payment instructions (printed on invoices)</span>
+              <textarea
+                name="payment_instructions"
+                defaultValue={b.payment_instructions}
+                rows={3}
+                placeholder={"Make checks payable to …\nMail to …\nACH: routing … account …"}
+                className={input}
+              />
+            </div>
+            <div>
               <span className={label}>Cover stats (up to four)</span>
               <div className="grid grid-cols-2 gap-2">
                 {stats.map((s, i) => (

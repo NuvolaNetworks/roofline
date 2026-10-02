@@ -350,57 +350,6 @@ export async function createWorkOrder(jobId: number, formData: FormData) {
   revalidatePath("/orders");
 }
 
-// ── Invoices + payments ──────────────────────────────────────────────
-
-export async function createInvoice(jobId: number, kind: string) {
-  const user = await requireUser();
-  const db = getDb();
-  const job = await db.get<{ value_cents: number }>(
-    "SELECT value_cents FROM jobs WHERE id = ? AND org_id = ?",
-    jobId, user.org_id,
-  );
-  if (!job) return;
-  const paid = (
-    await db.get<{ c: number }>(
-      "SELECT COALESCE(SUM(amount_cents),0) AS c FROM invoices WHERE job_id = ? AND org_id = ? AND status = 'Paid'",
-      jobId, user.org_id,
-    )
-  )!.c;
-  const amount = kind === "Deposit"
-    ? Math.round(Number(job.value_cents ?? 0) / 2)
-    : Math.max(0, Number(job.value_cents ?? 0) - paid);
-  await db.run(
-    "INSERT INTO invoices (org_id, job_id, kind, amount_cents, status, due_on, sent_at) VALUES (?,?,?,?, 'Sent', date('now','+14 days'), datetime('now'))",
-    user.org_id, jobId, kind, amount,
-  );
-  await log(user.org_id, jobId, "email", `${kind} invoice sent with payment link`, user.name, "outbound");
-  await touchJob(user.org_id, jobId);
-  revalidatePath("/invoices");
-}
-
-export async function markInvoicePaid(invoiceId: number) {
-  const user = await requireUser();
-  const db = getDb();
-  const inv = await db.get<{ job_id: number; kind: string; amount_cents: number }>(
-    "SELECT job_id, kind, amount_cents FROM invoices WHERE id = ? AND org_id = ?",
-    invoiceId, user.org_id,
-  );
-  if (!inv) return;
-  await db.run(
-    "UPDATE invoices SET status = 'Paid', paid_at = datetime('now') WHERE id = ? AND org_id = ?",
-    invoiceId, user.org_id,
-  );
-  await db.run(
-    "INSERT INTO payments (org_id, invoice_id, amount_cents, method, reference) VALUES (?,?,?,?,?)",
-    user.org_id, invoiceId, inv.amount_cents, "Card", `ch_${Math.random().toString(36).slice(2, 10)}`,
-  );
-  await log(user.org_id, inv.job_id, "system", `${inv.kind} payment received`, user.name);
-  if (inv.kind === "Balance") await setStage(inv.job_id, "Ready for Commission");
-  await touchJob(user.org_id, inv.job_id);
-  revalidatePath("/invoices");
-  revalidatePath("/payments");
-}
-
 // ── Tasks + automations ──────────────────────────────────────────────
 
 export async function toggleTask(taskId: number) {

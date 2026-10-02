@@ -10,14 +10,22 @@ import {
   createDocument,
   createMaterialOrder,
   createWorkOrder,
-  createInvoice,
 } from "@/lib/actions";
 import { usd, usd2, daysSince, tone } from "@/lib/fmt";
 import { createBlankProposal } from "@/lib/proposal-actions";
+import InvoicesPanel from "@/components/InvoicesPanel";
+import JobMoneyPanel from "@/components/JobMoneyPanel";
 
 export const dynamic = "force-dynamic";
 
-export default async function JobPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function JobPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ invoice_link?: string; invoice_id?: string; invoice_error?: string }>;
+}) {
+  const q = await searchParams;
   const user = await currentUser();
   if (!user) redirect("/login");
   const { id } = await params;
@@ -54,7 +62,7 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
   const stageIdx = STAGES.indexOf(stage as (typeof STAGES)[number]);
   const value = Number(job.value_cents);
   const cost = Number(job.cost_cents);
-  const paid = invoices.filter((i) => i.status === "Paid").reduce((s, i) => s + Number(i.amount_cents), 0);
+  const paid = invoices.filter((i) => i.status !== "Void").reduce((s, i) => s + Number(i.amount_paid_cents ?? 0), 0);
 
   const advance = advanceStage.bind(null, jobId);
   const order = orderMeasurement.bind(null, jobId);
@@ -64,8 +72,6 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
   const newMaterial = createMaterialOrder.bind(null, jobId);
   const newWork = createWorkOrder.bind(null, jobId);
   const note = addNote.bind(null, jobId);
-  const depositInvoice = createInvoice.bind(null, jobId, "Deposit");
-  const balanceInvoice = createInvoice.bind(null, jobId, "Balance");
 
   const btn =
     "rounded-lg border border-[var(--card-border)] px-3 py-1.5 text-sm hover:bg-black/5";
@@ -246,26 +252,18 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
         </Panel>
 
         <Panel title="Invoices & payments" href="/invoices">
-          {invoices.map((i) => (
-            <div key={String(i.id)} className="flex items-center justify-between border-b border-[var(--card-border)] py-2 text-sm last:border-0">
-              <span>
-                {String(i.kind)}
-                <span className="text-[var(--muted)]"> · due {String(i.due_on ?? "—")}</span>
-              </span>
-              <span className="flex items-center gap-2">
-                <span className="tabular-nums">{usd2(Number(i.amount_cents))}</span>
-                <span className={`rounded-full px-2 py-0.5 text-[11px] ${tone(String(i.status))}`}>{String(i.status)}</span>
-              </span>
-            </div>
-          ))}
-          <div className="mt-2 flex gap-2">
-            <form action={depositInvoice}>
-              <button className={btn}>Send deposit invoice</button>
-            </form>
-            <form action={balanceInvoice}>
-              <button className={btn}>Send balance invoice</button>
-            </form>
-          </div>
+          <InvoicesPanel
+            orgId={user.org_id}
+            jobId={jobId}
+            returnTo={`/jobs/${jobId}`}
+            link={q.invoice_link}
+            linkInvoiceId={Number(q.invoice_id) || undefined}
+            error={q.invoice_error}
+          />
+        </Panel>
+
+        <Panel title="Money">
+          <JobMoneyPanel orgId={user.org_id} jobId={jobId} />
         </Panel>
 
         <Panel title="Communication">
