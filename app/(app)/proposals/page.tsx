@@ -3,12 +3,19 @@ import { redirect } from "next/navigation";
 import { getDb } from "@/lib/db";
 import { currentUser } from "@/lib/auth";
 import { usd, tone } from "@/lib/fmt";
+import { newProposalForJob } from "@/lib/proposal-actions";
 
 export const dynamic = "force-dynamic";
 
-export default async function Proposals() {
+export default async function Proposals({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
   const user = await currentUser();
   if (!user) redirect("/login");
+  const { error } = await searchParams;
+  const jobs = await getDb().all<{ id: number; title: string; contact: string | null }>(
+    `SELECT j.id, j.title, c.name AS contact FROM jobs j LEFT JOIN contacts c ON c.id = j.contact_id
+     WHERE j.org_id = ? AND j.stage NOT IN ('Closed') ORDER BY j.updated_at DESC LIMIT 200`,
+    user.org_id,
+  );
   const rows = await getDb().all(
     `SELECT p.*, j.title AS job, c.name AS contact
      FROM proposals p JOIN jobs j ON j.id = p.job_id
@@ -26,6 +33,22 @@ export default async function Proposals() {
       <p className="mb-4 text-sm text-[var(--muted)]">
         Built from the measurement report and priced from the catalog. Sending, viewing and signing move the job.
       </p>
+      {error ? <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-800">{error}</div> : null}
+      <form action={newProposalForJob} className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-[var(--card-border)] bg-[var(--card)] p-3">
+        <span className="text-sm font-medium">New proposal for</span>
+        <select name="job_id" required defaultValue="" className="min-w-64 rounded-md border border-[var(--card-border)] bg-white px-2 py-1.5 text-sm">
+          <option value="" disabled>Choose a job…</option>
+          {jobs.map((j) => (
+            <option key={j.id} value={j.id}>{j.title}{j.contact ? ` — ${j.contact}` : ""}</option>
+          ))}
+        </select>
+        <button name="mode" value="measurement" className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-sm text-white hover:bg-[var(--accent-light)]">
+          From measurement
+        </button>
+        <button name="mode" value="blank" className="rounded-lg border border-[var(--card-border)] px-3 py-1.5 text-sm hover:bg-black/5">
+          Blank
+        </button>
+      </form>
       <div className="mb-6 rounded-xl border border-[var(--card-border)] bg-[var(--card)]">
         <table className="w-full text-sm">
           <thead>

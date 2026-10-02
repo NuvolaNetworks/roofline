@@ -155,6 +155,14 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
         </Panel>
 
         <Panel title="Proposals" href="/proposals">
+          <div className="mb-2 flex flex-wrap gap-2">
+            <form action={draftProposal}>
+              <button className={btn}>New proposal from measurement</button>
+            </form>
+            <form action={blankProposal}>
+              <button className={btn}>New blank proposal</button>
+            </form>
+          </div>
           {proposals.length === 0 ? (
             <p className="text-sm text-[var(--muted)]">No proposal yet.</p>
           ) : (

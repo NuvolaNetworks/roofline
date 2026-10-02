@@ -11,6 +11,7 @@ import { clientInfo } from "./client-info";
 import { loadProposalModel, getProposal } from "./proposal-data";
 import { applyProposalSigned, logJobEvent, recalcProposal } from "./proposal-effects";
 import { requestOrigin } from "./request-origin";
+import { createProposalFromMeasurement } from "./actions";
 import { notifyCompleted, notifySent, notifyVoided } from "./esign-notify";
 import { kickAmosOutbox } from "./amos-worker";
 import {
@@ -67,6 +68,19 @@ export async function createBlankProposal(jobId: number) {
   const p = await db.run("INSERT INTO proposals (org_id, job_id, name, status) VALUES (?,?,?, 'Draft')", user.org_id, jobId, `Proposal — ${job.title}`);
   await logJobEvent(db, user.org_id, jobId, "system", "Blank proposal created", user.name);
   redirect(page(p.lastId));
+}
+
+/** "New proposal" from the Proposals page: pick the job, start blank or
+ *  from its latest measurement. */
+export async function newProposalForJob(formData: FormData) {
+  const user = await requireUser();
+  const jobId = num(formData.get("job_id"));
+  const job = await getDb().get<{ id: number }>("SELECT id FROM jobs WHERE id = ? AND org_id = ?", jobId, user.org_id);
+  if (!job) redirect("/proposals?error=" + encodeURIComponent("Pick a job first."));
+  if (formData.get("mode") === "measurement") {
+    return createProposalFromMeasurement(jobId);
+  }
+  return createBlankProposal(jobId);
 }
 
 export async function updateProposalMeta(proposalId: number, formData: FormData) {
