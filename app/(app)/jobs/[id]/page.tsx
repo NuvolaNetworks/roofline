@@ -17,6 +17,7 @@ import { usd, usd2, daysSince, tone } from "@/lib/fmt";
 import { createBlankProposal } from "@/lib/proposal-actions";
 import InvoicesPanel from "@/components/InvoicesPanel";
 import JobMoneyPanel from "@/components/JobMoneyPanel";
+import { uploadBlueprintAction } from "@/lib/takeoff-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +26,7 @@ export default async function JobPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ invoice_link?: string; invoice_id?: string; invoice_error?: string }>;
+  searchParams: Promise<{ invoice_link?: string; invoice_id?: string; invoice_error?: string; takeoff_error?: string }>;
 }) {
   const q = await searchParams;
   const user = await currentUser();
@@ -55,6 +56,9 @@ export default async function JobPage({
   const materials = await rows("SELECT * FROM material_orders WHERE job_id = ? AND org_id = ? ORDER BY id DESC");
   const works = await rows("SELECT * FROM work_orders WHERE job_id = ? AND org_id = ? ORDER BY id DESC");
   const invoices = await rows("SELECT * FROM invoices WHERE job_id = ? AND org_id = ? ORDER BY id DESC");
+  const takeoffs = await rows(
+    "SELECT t.id, t.trade, t.status, t.proposal_id, t.created_at, f.filename FROM takeoffs t LEFT JOIN files f ON f.id = t.file_id WHERE t.job_id = ? AND t.org_id = ? ORDER BY t.id DESC",
+  );
   const templates = await db.all<{ id: number; name: string }>(
     "SELECT id, name FROM templates WHERE org_id = ? AND kind != 'proposal'",
     user.org_id,
@@ -165,6 +169,29 @@ export default async function JobPage({
             </form>
           </div>
         </Panel>
+
+        <section id="blueprints" className="rounded-xl border border-[var(--card-border)] bg-[var(--card)] p-4">
+          <h2 className="mb-2 font-semibold">Blueprints</h2>
+          {q.takeoff_error ? <p className="mb-2 rounded-md bg-red-50 px-2 py-1 text-xs text-red-800">{q.takeoff_error}</p> : null}
+          <form action={uploadBlueprintAction.bind(null, jobId)} className="mb-2 flex flex-wrap items-center gap-2">
+            <input type="file" name="blueprint" accept="application/pdf,image/png,image/jpeg" className="text-xs" />
+            <select name="trade" defaultValue={String(job.workflow) === "Construction" ? "construction" : "roofing"} className={input}>
+              <option value="roofing">Roofing</option>
+              <option value="pool">Pool</option>
+              <option value="construction">New construction</option>
+            </select>
+            <button className={btn}>Read plans</button>
+          </form>
+          <p className="mb-2 text-xs text-[var(--muted)]">
+            AMOS reads the plans into quantities; you check every number, then approve to draft the proposal and material list.
+          </p>
+          {takeoffs.map((t) => (
+            <Link key={String(t.id)} href={`/takeoffs/${String(t.id)}`} className="flex justify-between border-t border-[var(--card-border)] py-1.5 text-sm hover:underline">
+              <span>{String(t.filename ?? "plans")} · {String(t.trade)}</span>
+              <span className="text-xs text-[var(--muted)]">{String(t.status)}</span>
+            </Link>
+          ))}
+        </section>
 
         <Panel title="Proposals" href="/proposals">
           <div className="mb-2 flex flex-wrap gap-2">

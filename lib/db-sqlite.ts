@@ -294,6 +294,21 @@ const ESIGN_TABLES = `
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE (org_id, period, user_id)
   );
+  CREATE TABLE IF NOT EXISTS takeoffs (
+    id INTEGER PRIMARY KEY,
+    org_id TEXT NOT NULL REFERENCES orgs(id),
+    job_id INTEGER NOT NULL REFERENCES jobs(id),
+    file_id INTEGER NOT NULL REFERENCES files(id),
+    trade TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'Reading',
+    extracted TEXT, reviewed TEXT, error TEXT,
+    proposal_id INTEGER REFERENCES proposals(id),
+    measurement_id INTEGER REFERENCES measurements(id),
+    created_by INTEGER REFERENCES users(id),
+    approved_by INTEGER REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
   CREATE TABLE IF NOT EXISTS envelope_events (
     id INTEGER PRIMARY KEY,
     org_id TEXT NOT NULL REFERENCES orgs(id),

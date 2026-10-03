@@ -7,7 +7,7 @@ import type { Db } from "./db.ts";
 
 export const MAX_FILE_BYTES = 15 * 1024 * 1024;
 
-export type FilePurpose = "logo" | "attachment" | "signature" | "signed_pdf";
+export type FilePurpose = "logo" | "attachment" | "signature" | "signed_pdf" | "blueprint";
 
 export interface StoredFile {
   id: number;
