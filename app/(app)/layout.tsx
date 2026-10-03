@@ -18,6 +18,7 @@ const TOOLS = [
   ["/orders", "Material & Work Orders"],
   ["/invoices", "Invoices"],
   ["/payments", "Payments"],
+  ["/commissions", "Commissions"],
 ] as const;
 
 const MANAGE = [

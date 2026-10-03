@@ -25,8 +25,6 @@ export type Stage = (typeof STAGES)[number];
 /** Jobs belong to a workflow; a company runs several (roofing, construction…). */
 export const WORKFLOWS = ["Roofing", "Construction", "Service"] as const;
 
-export const COMMISSION_RATE = 0.1;
-
 /** Uint8Array binds as bytea (Postgres) / BLOB (sqlite) — see lib/files.ts. */
 export type SqlValue = string | number | null | Uint8Array;
 

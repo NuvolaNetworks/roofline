@@ -284,6 +284,16 @@ const ESIGN_TABLES = `
     file_id INTEGER REFERENCES files(id), created_by INTEGER REFERENCES users(id),
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
+  CREATE TABLE IF NOT EXISTS commission_statements (
+    id INTEGER PRIMARY KEY,
+    org_id TEXT NOT NULL REFERENCES orgs(id),
+    period TEXT NOT NULL,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    total_cents INTEGER NOT NULL,
+    job_count INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (org_id, period, user_id)
+  );
   CREATE TABLE IF NOT EXISTS envelope_events (
     id INTEGER PRIMARY KEY,
     org_id TEXT NOT NULL REFERENCES orgs(id),
@@ -319,6 +329,12 @@ const ESIGN_COLUMNS: ReadonlyArray<readonly [string, string, string]> = [
   ["payments", "received_on", "TEXT"],
   ["payments", "note", "TEXT NOT NULL DEFAULT ''"],
   ["payments", "recorded_by", "INTEGER REFERENCES users(id)"],
+  ["orgs", "commission_overhead_pct", "REAL NOT NULL DEFAULT 10"],
+  ["orgs", "commission_rep_share_pct", "REAL NOT NULL DEFAULT 50"],
+  ["orgs", "commission_statements_enabled", "INTEGER NOT NULL DEFAULT 1"],
+  ["jobs", "commission_paid_at", "TEXT"],
+  ["jobs", "commission_paid_cents", "INTEGER"],
+  ["jobs", "commission_paid_by", "INTEGER REFERENCES users(id)"],
 ];
 
 function migrateSqlite(d: DatabaseSync) {

@@ -136,6 +136,16 @@ mcp:
       http_method: POST
       http_path: /api/tools/add_job_cost
       classification: write
+    - name: commission_report
+      description: "Rep commissions: (collected − job costs − overhead% of the contract) × rep share% (default 10% overhead, 50/50 split). status='due' lists jobs Ready for Commission and not yet paid; 'paid' lists payouts; 'all' both. Each row shows the breakdown; totals per rep."
+      http_method: GET
+      http_path: /api/tools/commission_report
+      classification: read
+    - name: pay_commission
+      description: "Record that a job's commission was paid (at today's numbers) and close the job. Managers and admins only; the job must be Ready for Commission."
+      http_method: POST
+      http_path: /api/tools/pay_commission
+      classification: write
     - name: list_catalog
       description: "The company's catalog: SKU, name, unit, price, cost, proposal section, and whether a spec sheet is attached. Use the SKU with add_proposal_line."
       http_method: GET

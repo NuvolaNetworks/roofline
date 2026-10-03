@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { getDb, STAGES, COMMISSION_RATE } from "@/lib/db";
+import { getDb, STAGES } from "@/lib/db";
+import { jobMoney } from "@/lib/invoices";
+import { commissionSettings, computeCommission } from "@/lib/commission";
 import { currentUser, visibleUserIds } from "@/lib/auth";
 import {
   advanceStage,
@@ -63,6 +65,8 @@ export default async function JobPage({
   const value = Number(job.value_cents);
   const cost = Number(job.cost_cents);
   const paid = invoices.filter((i) => i.status !== "Void").reduce((s, i) => s + Number(i.amount_paid_cents ?? 0), 0);
+  const commission = computeCommission(await jobMoney(db, user.org_id, jobId), await commissionSettings(db, user.org_id));
+  const commissionPaid = job.commission_paid_at ? Number(job.commission_paid_cents ?? 0) : null;
 
   const advance = advanceStage.bind(null, jobId);
   const order = orderMeasurement.bind(null, jobId);
@@ -105,8 +109,10 @@ export default async function JobPage({
           <div className="text-lg font-semibold tabular-nums">{value > 0 ? usd(value) : "unquoted"}</div>
           {value > 0 ? (
             <div className="text-xs text-[var(--muted)]">
-              cost {usd(cost)} · margin {usd(value - cost)} ({Math.round(((value - cost) / value) * 100)}%) ·
-              commission {usd(Math.round((value - cost) * COMMISSION_RATE))}
+              cost {usd(cost)} · margin {usd(value - cost)} ({Math.round(((value - cost) / value) * 100)}%) ·{" "}
+              <Link href="/commissions" className="hover:underline">
+                {commissionPaid !== null ? `commission paid ${usd(commissionPaid)}` : `commission so far ${usd(commission.commission_cents)}`}
+              </Link>
             </div>
           ) : null}
           <div className="text-xs text-[var(--muted)]">

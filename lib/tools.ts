@@ -30,6 +30,7 @@ import {
   type InvoiceAmount,
 } from "./invoices.ts";
 import { notifyInvoiceSent, notifyPayment } from "./invoice-notify.ts";
+import { commissionRows, commissionSettings, CommissionError, markCommissionPaid } from "./commission.ts";
 
 export interface ToolContext {
   db: Db;
@@ -510,6 +511,49 @@ export const TOOLS: ToolDef[] = [
         amount_cents: dollarsToCents(a, "amount"), incurred_on: str(a, "incurred_on", 10) || null, created_by: ctx.actor.id,
       });
       return { cost_id: costId, money: await jobMoney(ctx.db, ctx.orgId, jobId) };
+    },
+  },
+
+  // Commissions
+  {
+    name: "commission_report",
+    description: "Rep commissions: (collected − job costs − overhead% of the contract) × rep share% (default 10% overhead, 50/50 split). status='due' lists jobs Ready for Commission and not yet paid; 'paid' lists payouts; 'all' both. Each row shows the breakdown; totals per rep.",
+    classification: "read",
+    params: {
+      status: { type: "string", enum: ["due", "paid", "all"], description: "Default due." },
+      rep_id: id("Only this rep's jobs."),
+    },
+    async run(ctx, a) {
+      const raw = str(a, "status", 10) || "due";
+      const status = (["due", "paid", "all"].includes(raw) ? raw : "due") as "due" | "paid" | "all";
+      const rows = await commissionRows(ctx.db, ctx.orgId, { visible: ctx.visible, status, repId: int(a, "rep_id", false) || undefined });
+      const reps = new Map<string, { rep: string; jobs: number; commission_cents: number }>();
+      for (const r of rows.filter((r) => r.status === "due")) {
+        const t = reps.get(r.rep_name) ?? { rep: r.rep_name, jobs: 0, commission_cents: 0 };
+        reps.set(r.rep_name, { ...t, jobs: t.jobs + 1, commission_cents: t.commission_cents + r.commission_cents });
+      }
+      return { settings: await commissionSettings(ctx.db, ctx.orgId), due_by_rep: [...reps.values()], jobs: rows };
+    },
+  },
+  {
+    name: "pay_commission",
+    description: "Record that a job's commission was paid (at today's numbers) and close the job. Managers and admins only; the job must be Ready for Commission.",
+    classification: "write",
+    params: { job_id: id("Job id.") },
+    required: ["job_id"],
+    async run(ctx, a) {
+      const jobId = int(a, "job_id");
+      await visibleJob(ctx, jobId);
+      const role = ctx.actor.id
+        ? (await ctx.db.get<{ role: string }>("SELECT role FROM users WHERE id = ? AND org_id = ?", ctx.actor.id, ctx.orgId))?.role
+        : undefined;
+      if (role !== "admin" && role !== "manager") throw new ops.OpError("Only a manager or admin can pay out commission.");
+      try {
+        return await markCommissionPaid(ctx.db, ctx.orgId, jobId, { id: ctx.actor.id, name: ctx.actor.name });
+      } catch (e) {
+        if (e instanceof CommissionError) throw new ops.OpError(e.message);
+        throw e;
+      }
     },
   },
 

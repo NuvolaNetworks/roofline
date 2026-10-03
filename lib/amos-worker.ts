@@ -6,6 +6,7 @@
 import { getDb } from "./db.ts";
 import { drain } from "./amos-outbox.ts";
 import { amosTransport } from "./amos-link.ts";
+import { runDueCommissionStatements } from "./commission.ts";
 
 const TICK_MS = 15_000;
 let running: Promise<void> | null = null;
@@ -28,9 +29,24 @@ export function kickAmosOutbox(): void {
     });
 }
 
+// Commission statements: checked hourly; they queue only on the 1st and
+// 15th (company time), once per rep per period, then drain like any message.
+const STATEMENT_CHECK_MS = 60 * 60 * 1000;
+
+async function commissionPass(): Promise<void> {
+  const queued = await runDueCommissionStatements(getDb());
+  if (queued) {
+    console.log(`[roofline] commission statements: ${queued} queued`);
+    kickAmosOutbox();
+  }
+}
+
 export function startAmosWorker(): void {
   if (started) return;
   started = true;
   setInterval(kickAmosOutbox, TICK_MS).unref();
   kickAmosOutbox();
+  const statements = () => commissionPass().catch((err) => console.error("[roofline] commission statements failed:", err));
+  setInterval(statements, STATEMENT_CHECK_MS).unref();
+  statements();
 }

@@ -21,7 +21,7 @@ const db = createSqliteDb();
 const org = DEMO_ORG_ID;
 const origin = "https://roofline.custom.amoslabs.com";
 const identity = (email: string, role: string): AmosIdentity =>
-  ({ sub: `sub-${email}`, org_id: "aa193fa0-2229-415e-a609-35076a8afb01", email, role, plan_key: "", entitlements: [], subscription_status: "", app_id: "x", aud: "x" }) as AmosIdentity;
+  ({ sub: `sub-${email}`, org_id: "aa193fa0-2229-415e-a609-35076a8afb01", email, role, plan_key: "", entitlements: [], subscription_status: "", app_id: "x", aud: "x" }) as unknown as AmosIdentity;
 
 async function call(email: string, role: string, name: string, args: Record<string, unknown> = {}) {
   const ctx = await toolContext(db, org, identity(email, role), origin);
